@@ -15,5 +15,4 @@
 /scripts/release/ @ai-openshell/infra
 /scripts/retag-image.sh @ai-openshell/infra
 /scripts/branch-tip.sh @ai-openshell/infra
-/scripts/quay-login.sh @ai-openshell/infra
 /deploy/ci/upstream/ @ai-openshell/infra
