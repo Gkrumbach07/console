@@ -55,7 +55,7 @@ GATEWAY_PORT=50051
 HEALTH_PORT=50053
 KEYCLOAK_PORT=8180
 PROXY_PORT=4180
-UI_PORT=3000             # frontend/vite.config.ts
+UI_PORT="${UI_PORT:-3000}" # frontend/vite.config.ts reads UI_PORT too
 BFF_PORT="${PORT:-8080}" # the BFF reads PORT itself
 
 # What deploy/keycloak/openshell-realm.json calls its realm and the
@@ -130,7 +130,7 @@ port_free() {
 }
 
 OTHER_STACK="If another checkout's stack holds it, run 'make dev-down' there."
-OTHER_RUN="If 'make dev' or 'make dev-full' holds it, stop that one with Ctrl-C."
+OTHER_RUN="If 'make dev' or 'make dev-full' holds it, stop that one with Ctrl-C. If something else does, run on other ports: UI_PORT=3010 PORT=8090 make dev-full."
 
 # ports [--sign-in]: what make dev starts on this machine, and with --sign-in
 # what make dev-full does. Without this, the one that cannot listen stops and

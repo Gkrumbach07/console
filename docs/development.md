@@ -27,6 +27,7 @@ make dev-full   # also Keycloak, with the realm of deploy/keycloak/, and the aut
 Open `http://localhost:4180`, not the port 3000 the dev server prints. The command prints the password of `admin1`, a platform admin, and `user1`, and the subject by which `admin1` adds `user1` to a workspace under **Members**; `scripts/dev-env.sh status` prints them again. The first run pulls Keycloak and builds the auth proxy; the first sandbox pulls a 4 GB image.
 
 - **Stop.** Ctrl-C, then `make dev-down`. `make dev-reset` also deletes the gateway's data; run it before you delete the checkout.
+- **Ports taken.** When something else holds 3000 or 8080 (another worktree's dev server, a local cluster's port forward), run on others: `UI_PORT=3010 PORT=8090 make dev-full`. The auth proxy stays on 4180.
 - **Logs.** `make dev-logs` follows the gateway and Keycloak.
 - **Docker.** The gateway runs on the daemon `docker` talks to (`docker context ls`). Tested on colima on macOS only; there, keep the checkout under your home directory.
 - **No gateway at all.** `make dev-mock` serves the UI from fixtures, with no BFF or gateway running; `make dev-mock-empty` is a gateway nobody has used yet. See [The mock API](mock-api.md).

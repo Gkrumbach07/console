@@ -40,11 +40,15 @@ export default defineConfig({
     __DASHBOARD_COMMIT__: JSON.stringify(commit),
   },
   server: {
-    port: 3000,
+    // UI_PORT and PORT are the ports scripts/dev-env.sh gives the UI dev
+    // server and the BFF, so that make dev and make dev-full run beside
+    // whatever else holds 3000 or 8080.
+    port: Number(process.env.UI_PORT || 3000),
     strictPort: true,
     proxy: {
       '/api': {
-        target: process.env.BFF_URL || 'http://localhost:8080',
+        target:
+          process.env.BFF_URL || `http://localhost:${process.env.PORT || 8080}`,
         // Preserve the browser Host header so the BFF WebSocket Origin
         // check (origin === http(s):// + Host) still passes in dev.
         changeOrigin: false,
