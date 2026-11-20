@@ -16,6 +16,7 @@ import {
   Routes,
   useNavigate,
   useParams,
+  useSearchParams,
 } from 'react-router-dom';
 
 import AllSandboxesPage from '../pages/AllSandboxesPage';
@@ -32,8 +33,17 @@ import CreateSandboxPage from '../pages/CreateSandboxPage';
 import ProposalsPage from '../pages/ProposalsPage';
 import SettingsPage from '../pages/SettingsPage';
 import { useUserRole } from '../api/rbac';
+import { useWorkspaces } from '../api/workspaces';
 import { useI18n } from '../i18n';
 import AppLayout from './AppLayout';
+import {
+  NAV_SECTIONS,
+  defaultWorkspace,
+  recallWorkspace,
+  sectionOfLegacyTab,
+  sectionPath,
+  type NavSection,
+} from './workspaceScope';
 
 const WorkspaceListRoute: React.FC = () => {
   const navigate = useNavigate();
@@ -42,58 +52,95 @@ const WorkspaceListRoute: React.FC = () => {
   );
 };
 
-const WorkspaceCrumbs: React.FC<{ workspace: string; leaf?: string }> = ({
-  workspace,
-  leaf,
-}) => {
+// Where a page under one of a workspace's sections is: "Sandboxes > name".
+// The workspace itself is in the navigation's switcher, so it is not
+// repeated here.
+const SectionCrumbs: React.FC<{
+  workspace: string;
+  section: NavSection;
+  leaf: string;
+}> = ({ workspace, section, leaf }) => {
   const { t } = useI18n('common');
   // Flat children, never a fragment: Breadcrumb puts the divider on each
   // child after the first with Children.map, which does not look inside a
-  // fragment, so grouping the deeper two left both of them without one.
+  // fragment.
   return (
     <PageBreadcrumb>
       <Breadcrumb>
         <BreadcrumbItem
           render={({ className }) => (
-            <Link className={className} to="/workspaces">
-              {t('nav.workspaces')}
+            <Link
+              className={className}
+              to={sectionPath({ workspace }, section)}
+            >
+              {t(`nav.${section}`)}
             </Link>
           )}
         />
-        {leaf && (
-          <BreadcrumbItem
-            render={({ className }) => (
-              <Link className={className} to={`/workspaces/${workspace}`}>
-                {workspace}
-              </Link>
-            )}
-          />
-        )}
-        <BreadcrumbItem isActive>{leaf ?? workspace}</BreadcrumbItem>
+        <BreadcrumbItem isActive>{leaf}</BreadcrumbItem>
       </Breadcrumb>
     </PageBreadcrumb>
   );
 };
 
-const WorkspaceDetailRoute: React.FC = () => {
+// The bare workspace URL, and the `?tab=` links of the one-page workspace
+// view it used to be, lead to the section's own page.
+const WorkspaceHomeRedirect: React.FC = () => {
+  const { workspace } = useParams<{ workspace: string }>();
+  const [searchParams] = useSearchParams();
+  if (!workspace) {
+    return <Navigate to="/workspaces" replace />;
+  }
+  const { section, search } = sectionOfLegacyTab(searchParams.get('tab'));
+  return (
+    <Navigate to={`${sectionPath({ workspace }, section)}${search}`} replace />
+  );
+};
+
+// Where signing in lands: the sandboxes of the workspace last worked in, or
+// of the first there is. With no workspace at all, the list that says so.
+const HomeRedirect: React.FC = () => {
+  const { isUnentitled, isLoading: isRoleLoading } = useUserRole();
+  const workspaces = useWorkspaces(undefined, {
+    enabled: !isRoleLoading && !isUnentitled,
+  });
+  if (workspaces.isLoading || isRoleLoading) {
+    return null;
+  }
+  const workspace = defaultWorkspace(
+    (workspaces.data ?? []).map((w) => w.metadata.name),
+    recallWorkspace(),
+  );
+  return (
+    <Navigate
+      to={workspace ? sectionPath({ workspace }, 'sandboxes') : '/workspaces'}
+      replace
+    />
+  );
+};
+
+const WorkspaceSectionRoute: React.FC<{ section: NavSection }> = ({
+  section,
+}) => {
   const { workspace } = useParams<{ workspace: string }>();
   const navigate = useNavigate();
   if (!workspace) {
     return <Navigate to="/workspaces" replace />;
   }
   return (
-    <>
-      <WorkspaceCrumbs workspace={workspace} />
-      <WorkspaceDetailPage
-        workspace={workspace}
-        onSelectSandbox={(name) =>
-          navigate(`/workspaces/${workspace}/sandboxes/${name}`)
-        }
-        onSelectProvider={(name) =>
-          navigate(`/workspaces/${workspace}/providers/${name}`)
-        }
-      />
-    </>
+    <WorkspaceDetailPage
+      // A page per workspace and section: what one holds (a filter, an open
+      // dialog) is not carried into another.
+      key={`${workspace}/${section}`}
+      workspace={workspace}
+      section={section}
+      onSelectSandbox={(name) =>
+        navigate(`/workspaces/${workspace}/sandboxes/${name}`)
+      }
+      onSelectProvider={(name) =>
+        navigate(`/workspaces/${workspace}/providers/${name}`)
+      }
+    />
   );
 };
 
@@ -107,7 +154,7 @@ const SandboxDetailRoute: React.FC = () => {
   }
   return (
     <>
-      <WorkspaceCrumbs workspace={workspace} leaf={sandbox} />
+      <SectionCrumbs workspace={workspace} section="sandboxes" leaf={sandbox} />
       <SandboxDetailPage workspace={workspace} sandboxName={sandbox} />
     </>
   );
@@ -121,7 +168,11 @@ const CreateSandboxRoute: React.FC = () => {
   }
   return (
     <>
-      <WorkspaceCrumbs workspace={workspace} leaf="Create sandbox" />
+      <SectionCrumbs
+        workspace={workspace}
+        section="sandboxes"
+        leaf="Create sandbox"
+      />
       <CreateSandboxPage
         workspace={workspace}
         // What the sandbox was made to run travels in the navigation state,
@@ -133,7 +184,7 @@ const CreateSandboxRoute: React.FC = () => {
             terminalCommand ? { state: { terminalCommand } } : undefined,
           )
         }
-        onCancel={() => navigate(`/workspaces/${workspace}`)}
+        onCancel={() => navigate(sectionPath({ workspace }, 'sandboxes'))}
       />
     </>
   );
@@ -149,7 +200,11 @@ const ProviderDetailRoute: React.FC = () => {
   }
   return (
     <>
-      <WorkspaceCrumbs workspace={workspace} leaf={provider} />
+      <SectionCrumbs
+        workspace={workspace}
+        section="providers"
+        leaf={provider}
+      />
       <ProviderDetailPage workspace={workspace} providerName={provider} />
     </>
   );
@@ -256,7 +311,17 @@ const AuthenticatedRoutes: React.FC<{ sessionAlert?: React.ReactNode }> = ({
           falls back to a request per workspace without one. */}
       <Route path="/proposals" element={<ProposalsPage />} />
       <Route path="/workspaces" element={<WorkspaceListRoute />} />
-      <Route path="/workspaces/:workspace" element={<WorkspaceDetailRoute />} />
+      <Route
+        path="/workspaces/:workspace"
+        element={<WorkspaceHomeRedirect />}
+      />
+      {NAV_SECTIONS.map((section) => (
+        <Route
+          key={section}
+          path={`/workspaces/:workspace/${section}`}
+          element={<WorkspaceSectionRoute section={section} />}
+        />
+      ))}
       <Route
         path="/workspaces/:workspace/sandboxes/:sandbox"
         element={<SandboxDetailRoute />}
@@ -271,7 +336,7 @@ const AuthenticatedRoutes: React.FC<{ sessionAlert?: React.ReactNode }> = ({
         path="/workspaces/:workspace/providers/:provider"
         element={<ProviderDetailRoute />}
       />
-      <Route path="*" element={<Navigate to="/workspaces" replace />} />
+      <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );
 

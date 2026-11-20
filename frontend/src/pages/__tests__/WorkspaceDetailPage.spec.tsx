@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import WorkspaceDetailPage from '../WorkspaceDetailPage';
 import type { ServiceEndpoint, Workspace } from '../../types';
 
-// The tabs that belong to other resources are not what is under test here.
+// The pages of the other resources are not what is under test here.
 jest.mock('../SandboxListPage', () => ({
   __esModule: true,
   default: () => <div data-testid="sandbox-list" />,
@@ -24,6 +24,10 @@ jest.mock('../../components/TemplatesTab', () => ({
 jest.mock('../../components/provider/ProfilesTab', () => ({
   __esModule: true,
   default: () => <div data-testid="profiles-tab" />,
+}));
+jest.mock('../../components/WorkspaceProposals', () => ({
+  __esModule: true,
+  default: () => <div data-testid="workspace-proposals" />,
 }));
 
 jest.mock('../../api/providers', () => ({
@@ -92,18 +96,30 @@ const Location: React.FC = () => {
   );
 };
 
-const renderPage = (
-  props: Partial<React.ComponentProps<typeof WorkspaceDetailPage>> = {},
+type PageProps = React.ComponentProps<typeof WorkspaceDetailPage>;
+
+// The page of one of a workspace's things, at the URL the navigation leads
+// to it by.
+const renderSection = (
+  section: NonNullable<PageProps['section']>,
+  props: Partial<PageProps> = {},
+  search = '',
 ) =>
   render(
     <MemoryRouter
-      initialEntries={['/workspaces/team-a']}
+      initialEntries={[`/workspaces/team-a/${section}${search}`]}
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <Routes>
         <Route
-          path="/workspaces/:workspace"
-          element={<WorkspaceDetailPage workspace="team-a" {...props} />}
+          path={`/workspaces/:workspace/${section}`}
+          element={
+            <WorkspaceDetailPage
+              workspace="team-a"
+              section={section}
+              {...props}
+            />
+          }
         />
         <Route path="*" element={null} />
       </Routes>
@@ -128,14 +144,62 @@ describe('WorkspaceDetailPage', () => {
     });
   });
 
-  // What `openshell workspace get` prints: name, id, resource version,
-  // creation time and labels.
-  it('shows the id, resource version, creation time and labels', () => {
-    renderPage();
+  // Each thing of a workspace is a page of its own: its name as the heading,
+  // the workspace beside it, and that thing's list.
+  it.each([
+    ['sandboxes', 'Sandboxes', 'sandbox-list'],
+    ['providers', 'Providers', 'provider-list'],
+    ['proposals', 'Proposals', 'workspace-proposals'],
+    ['templates', 'Templates', 'templates-tab'],
+    ['members', 'Members', 'member-list'],
+  ] as const)('shows the %s of the workspace', (section, title, testId) => {
+    renderSection(section);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'team-a' }),
+      screen.getByRole('heading', { level: 1, name: title }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-name')).toHaveTextContent('team-a');
+    expect(screen.getByTestId(testId)).toBeInTheDocument();
+    // And nothing of the others.
+    for (const other of ['sandbox-list', 'member-list', 'templates-tab']) {
+      if (other !== testId) {
+        expect(screen.queryByTestId(other)).not.toBeInTheDocument();
+      }
+    }
+  });
+
+  // A provider is made from a profile, so the two are managed on one page.
+  // Which of the two is open is in the URL, so that a link can say.
+  it('keeps the profiles behind the providers, on a tab of their own', () => {
+    renderSection('providers');
+    expect(screen.getByRole('tab', { name: 'Providers' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/workspaces/team-a/providers?tab=profiles',
+    );
+    expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('opens on the profiles when the URL says so', () => {
+    renderSection('providers', {}, '?tab=profiles');
+    expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  // What `openshell workspace get` prints: id, resource version, creation
+  // time and labels. It is beside the people of the workspace.
+  it('shows the id, resource version, creation time and labels with the members', () => {
+    renderSection('members');
+
     const details = within(screen.getByTestId('workspace-details'));
     const value = (term: string) =>
       details.getByText(term).closest('.pf-v6-c-description-list__group');
@@ -160,7 +224,7 @@ describe('WorkspaceDetailPage', () => {
         metadata: { ...workspace.metadata, labels: undefined },
       },
     });
-    renderPage();
+    renderSection('members');
 
     const labels = within(screen.getByTestId('workspace-details'))
       .getByText('Labels')
@@ -168,11 +232,15 @@ describe('WorkspaceDetailPage', () => {
     expect(labels).toHaveTextContent('Labels-');
   });
 
+  it('does not repeat the workspace details on the other pages', () => {
+    renderSection('sandboxes');
+    expect(screen.queryByTestId('workspace-details')).not.toBeInTheDocument();
+  });
+
   // `openshell service list` without a sandbox: every endpoint in the
   // workspace, the unnamed one shown the way the CLI shows it.
   it('lists the service endpoints of the whole workspace', () => {
-    renderPage();
-    fireEvent.click(screen.getByRole('tab', { name: /Services/ }));
+    renderSection('services');
 
     expect(mockUseWorkspaceServices).toHaveBeenCalledWith('team-a', {
       enabled: true,
@@ -198,18 +266,10 @@ describe('WorkspaceDetailPage', () => {
     expect(within(rows[1]).getAllByRole('cell')[1]).toHaveTextContent(/^-$/);
   });
 
-  it('counts the endpoints on the tab', () => {
-    renderPage();
-    expect(screen.getByRole('tab', { name: /Services/ })).toHaveTextContent(
-      'Services 2',
-    );
-  });
-
   // An endpoint is exposed and deleted on its sandbox, so the sandbox column
   // leads to that sandbox's Services tab.
   it('opens the Services tab of the sandbox an endpoint belongs to', () => {
-    renderPage();
-    fireEvent.click(screen.getByRole('tab', { name: /Services/ }));
+    renderSection('services');
 
     fireEvent.click(screen.getByTestId('service-sandbox-link-team-a-other'));
 
@@ -220,25 +280,29 @@ describe('WorkspaceDetailPage', () => {
 
   it('hands the navigation to onViewSandbox when it is passed', () => {
     const onViewSandbox = jest.fn();
-    renderPage({ onViewSandbox });
-    fireEvent.click(screen.getByRole('tab', { name: /Services/ }));
+    renderSection('services', { onViewSandbox });
 
     fireEvent.click(screen.getByTestId('service-sandbox-link-team-a-agent'));
 
     expect(onViewSandbox).toHaveBeenCalledWith('agent', 'services');
-    // Still on the workspace, on the tab it was on: the tab is in the URL.
+    // The router was left alone.
     expect(screen.getByTestId('location')).toHaveTextContent(
-      /^\/workspaces\/team-a\?tab=services$/,
+      /^\/workspaces\/team-a\/services$/,
     );
   });
 
-  it('has no Services tab, and fetches nothing, where services are off', () => {
-    mockServicesFeature = false;
-    renderPage();
+  // The endpoints are read where they are shown, and not at all where the
+  // feature is off.
+  it('reads the services on their own page only', () => {
+    renderSection('sandboxes');
+    expect(mockUseWorkspaceServices).toHaveBeenCalledWith('team-a', {
+      enabled: false,
+    });
+  });
 
-    expect(
-      screen.queryByRole('tab', { name: /Services/ }),
-    ).not.toBeInTheDocument();
+  it('fetches nothing where services are off', () => {
+    mockServicesFeature = false;
+    renderSection('services');
     expect(mockUseWorkspaceServices).toHaveBeenCalledWith('team-a', {
       enabled: false,
     });
@@ -251,7 +315,7 @@ describe('WorkspaceDetailPage', () => {
       error: new Error("workspace 'team-a' not found"),
       refetch: jest.fn(),
     });
-    renderPage();
+    renderSection('sandboxes');
 
     expect(
       screen.getByText('Failed to load workspace team-a'),

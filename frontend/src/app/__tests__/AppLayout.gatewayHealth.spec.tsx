@@ -21,7 +21,8 @@ jest.mock('../../api/rbac', () => ({
 }));
 // The shell counts the rules waiting for a decision for its Proposals badge.
 jest.mock('../../api/draftSummary', () => ({
-  useAllWorkspacesDraftSummary: () => ({ totalPending: 0 }),
+  useAllWorkspacesDraftSummary: () => ({ totalPending: 0, items: [] }),
+  useWorkspaceDraftSummary: () => ({ totalPending: 0, items: [] }),
 }));
 // The shell counts sandboxes and workspaces for their nav badges. None here.
 jest.mock('../../api/allWorkspaces', () => ({

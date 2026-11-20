@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BUILD_COMMIT, NAV_COUNT_POLL_MS } from '../constants';
 import {
   AboutModal,
@@ -29,6 +29,9 @@ import {
   PageSidebar,
   PageSidebarBody,
   PageToggleButton,
+  Select,
+  SelectList,
+  SelectOption,
   Toolbar,
   ToolbarContent,
   ToolbarItem,
@@ -39,14 +42,17 @@ import {
   QuestionCircleIcon,
   SunIcon,
 } from '@patternfly/react-icons';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import openshellLogo from '~/assets/openshell-logo.svg';
 import openshellLogoDark from '~/assets/openshell-logo-dark.svg';
 import { useAllSandboxes } from '../api/allWorkspaces';
 import { useGatewayCompatibility } from '../api/gateway';
 import { useCurrentUser, useFeatureFlags } from '../api/auth';
-import { useAllWorkspacesDraftSummary } from '../api/draftSummary';
+import {
+  useAllWorkspacesDraftSummary,
+  useWorkspaceDraftSummary,
+} from '../api/draftSummary';
 import { useUserRole } from '../api/rbac';
 import { useWorkspaces } from '../api/workspaces';
 import CurrentUserModal from '../components/CurrentUserModal';
@@ -56,85 +62,86 @@ import RoleBadge from '../components/RoleBadge';
 import { useI18n } from '../i18n';
 import { logout } from './logout';
 import { useTheme } from './theme';
+import {
+  defaultWorkspace,
+  recallWorkspace,
+  rememberWorkspace,
+  scopeOfLocation,
+  sectionPath,
+  type NavSection,
+} from './workspaceScope';
 
 type AppLayoutProps = {
   children: React.ReactNode;
   sessionAlert?: React.ReactNode;
 };
 
-type NavGroupId = 'workspaces' | 'platform';
-
+// One entry of the sidebar.
 type NavEntry = {
+  id: string;
+  label: string;
+  to: string;
+  isActive: boolean;
+  badge?: { count: number; testId: string };
+};
+
+// The things of a workspace, in the order they are used. Proposals and
+// Services are features a deployment can turn off.
+const SECTION_ENTRIES: {
+  section: NavSection;
+  labelKey:
+    | 'nav.sandboxes'
+    | 'nav.providers'
+    | 'nav.proposals'
+    | 'nav.templates'
+    | 'nav.services'
+    | 'nav.members';
+  featureKey?: keyof import('../types').FeatureFlags;
+}[] = [
+  { section: 'sandboxes', labelKey: 'nav.sandboxes' },
+  { section: 'providers', labelKey: 'nav.providers' },
+  {
+    section: 'proposals',
+    labelKey: 'nav.proposals',
+    featureKey: 'draftPolicy',
+  },
+  { section: 'templates', labelKey: 'nav.templates' },
+  { section: 'services', labelKey: 'nav.services', featureKey: 'services' },
+  { section: 'members', labelKey: 'nav.members' },
+];
+
+// The platform's own pages, for platform admins: they belong to no
+// workspace.
+const PLATFORM_ENTRIES: {
   path: string;
   labelKey:
     | 'nav.gateway'
     | 'nav.workspaces'
-    | 'nav.proposals'
-    | 'nav.sandboxes'
-    | 'nav.allWorkspaces'
     | 'nav.providerProfiles'
     | 'nav.globalPolicy'
     | 'nav.settings';
-  // The section of the sidebar the entry belongs to. An entry with none sits
-  // above the sections, as Gateway does: the dashboard's landing page is not
-  // one of a set.
-  group?: NavGroupId;
-  adminOnly?: boolean;
   featureKey?: keyof import('../types').FeatureFlags;
-};
-
-const navGroups: { id: NavGroupId }[] = [
-  { id: 'workspaces' },
-  { id: 'platform' },
-];
-
-const navEntries: NavEntry[] = [
-  { path: '/gateway', labelKey: 'nav.gateway', adminOnly: true },
-  { path: '/workspaces', labelKey: 'nav.workspaces', group: 'workspaces' },
-  {
-    path: '/sandboxes',
-    labelKey: 'nav.sandboxes',
-    group: 'workspaces',
-    adminOnly: true,
-  },
-  {
-    path: '/proposals',
-    labelKey: 'nav.proposals',
-    group: 'workspaces',
-    featureKey: 'draftPolicy',
-  },
-  {
-    path: '/all-workspaces',
-    labelKey: 'nav.allWorkspaces',
-    group: 'workspaces',
-    adminOnly: true,
-  },
-  {
-    path: '/provider-profiles',
-    labelKey: 'nav.providerProfiles',
-    group: 'platform',
-    adminOnly: true,
-  },
+}[] = [
+  { path: '/gateway', labelKey: 'nav.gateway' },
+  { path: '/workspaces', labelKey: 'nav.workspaces' },
+  { path: '/provider-profiles', labelKey: 'nav.providerProfiles' },
   {
     path: '/global-policy',
     labelKey: 'nav.globalPolicy',
-    group: 'platform',
-    adminOnly: true,
     featureKey: 'globalPolicy',
   },
-  {
-    path: '/settings',
-    labelKey: 'nav.settings',
-    group: 'platform',
-    adminOnly: true,
-    featureKey: 'settings',
-  },
+  { path: '/settings', labelKey: 'nav.settings', featureKey: 'settings' },
 ];
+
+// The switcher's value for every workspace at once.
+const ALL_WORKSPACES = '\u0000all';
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children, sessionAlert }) => {
   const { t } = useI18n('common');
   const location = useLocation();
+  const navigate = useNavigate();
   const user = useCurrentUser({ notifySessionExpired: false });
+  const [isSwitcherOpen, setSwitcherOpen] = useState(false);
   const {
     isPlatformAdmin,
     isUser,
@@ -167,10 +174,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, sessionAlert }) => {
   // page and the Gateway page use, so an admin on either is not polling it
   // twice. The BFF answers it with one draft read per sandbox on the gateway,
   // so the shell's own pace is NAV_COUNT_POLL_MS, not the pages'.
-  const { totalPending: pendingProposals } = useAllWorkspacesDraftSummary(
-    features.draftPolicy && isPlatformAdmin,
-    { refetchInterval: NAV_COUNT_POLL_MS },
-  );
+  const { totalPending: pendingProposals, items: pendingBySandbox } =
+    useAllWorkspacesDraftSummary(features.draftPolicy && isPlatformAdmin, {
+      refetchInterval: NAV_COUNT_POLL_MS,
+    });
   // How many sandboxes the gateway has, on the Sandboxes entry. The unfiltered
   // all-workspaces list — the same query the Sandboxes page reads when no
   // label selector is set — so an admin looking at that list is not polling
@@ -193,6 +200,31 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, sessionAlert }) => {
   });
   const workspaceCount = workspaces?.length ?? 0;
 
+  // The workspace the navigation is in: the one the URL names, else, on a
+  // page that belongs to none, the one last worked in. Every workspace at
+  // once is a scope of its own, for platform admins.
+  const here = scopeOfLocation(location.pathname, location.search);
+  const workspaceNames = (workspaces ?? []).map((w) => w.metadata.name);
+  const isAllScope = here.isAll && isPlatformAdmin;
+  const currentWorkspace = isAllScope
+    ? undefined
+    : (here.workspace ?? defaultWorkspace(workspaceNames, recallWorkspace()));
+  useEffect(() => {
+    if (here.workspace) rememberWorkspace(here.workspace);
+  }, [here.workspace]);
+  // What is waiting in the current workspace. A platform admin's count comes
+  // from the summary the shell already reads; anyone else's is one request,
+  // for the one workspace they are in.
+  const ownSummary = useWorkspaceDraftSummary(
+    currentWorkspace ?? '',
+    features.draftPolicy && !isPlatformAdmin && !!currentWorkspace,
+  );
+  const pendingHere = isPlatformAdmin
+    ? pendingBySandbox
+        .filter((entry) => entry.workspace === currentWorkspace)
+        .reduce((sum, entry) => sum + entry.pendingCount, 0)
+    : ownSummary.totalPending;
+
   const masthead = (
     <Masthead
       display={{ default: 'inline' }}
@@ -211,7 +243,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, sessionAlert }) => {
             component={(props) => (
               <Link
                 {...props}
-                to={isPlatformAdmin ? '/gateway' : '/workspaces'}
+                // Home: the sandboxes of the workspace last worked in.
+                to="/"
                 className="pf-v6-u-text-decoration-none"
               />
             )}
@@ -347,68 +380,162 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, sessionAlert }) => {
     </Masthead>
   );
 
-  const visibleEntries = navEntries.filter(
-    (e) =>
-      (!e.adminOnly || isPlatformAdmin) &&
-      (!e.featureKey || features[e.featureKey]),
-  );
-  const groupedEntries = navGroups
-    .map((group) => ({
-      ...group,
-      entries: visibleEntries.filter((entry) => entry.group === group.id),
-    }))
-    .filter((group) => group.entries.length > 0);
-  // A rule above the only section there is would divide the sidebar from
-  // nothing. Rules earn their place once a user can see more than one section
-  // — a standard user, who sees only their workspaces, gets the flat list
-  // they had.
-  const hasSections = groupedEntries.length > 1;
+  const scope = isAllScope
+    ? ('all' as const)
+    : currentWorkspace
+      ? { workspace: currentWorkspace }
+      : undefined;
+  // An entry is the current one only while the URL is in the scope the
+  // navigation shows: on a platform page none of the workspace's entries is.
+  const inScope = isAllScope || !!here.workspace;
+  const sectionEntries: NavEntry[] = scope
+    ? SECTION_ENTRIES.filter(
+        (entry) =>
+          (!entry.featureKey || features[entry.featureKey]) &&
+          // Members are of one workspace.
+          !(scope === 'all' && entry.section === 'members'),
+      ).map((entry) => ({
+        id: `section-${entry.section}`,
+        label: t(entry.labelKey),
+        to: sectionPath(scope, entry.section),
+        isActive: inScope && here.section === entry.section,
+        badge:
+          entry.section === 'proposals'
+            ? {
+                count: scope === 'all' ? pendingProposals : pendingHere,
+                testId: 'proposals-badge',
+              }
+            : entry.section === 'sandboxes' && scope === 'all'
+              ? { count: sandboxCount, testId: 'sandboxes-badge' }
+              : undefined,
+      }))
+    : [];
+  const platformEntries: NavEntry[] = isPlatformAdmin
+    ? PLATFORM_ENTRIES.filter(
+        (entry) => !entry.featureKey || features[entry.featureKey],
+      ).map((entry) => ({
+        id: `platform-${entry.path}`,
+        label: t(entry.labelKey),
+        to: entry.path,
+        // The Workspaces list is /workspaces alone: a workspace's own pages
+        // are under it, and are not it.
+        isActive:
+          entry.path === '/workspaces'
+            ? location.pathname === '/workspaces'
+            : location.pathname.startsWith(entry.path),
+        badge:
+          entry.path === '/workspaces'
+            ? { count: workspaceCount, testId: 'workspaces-badge' }
+            : undefined,
+      }))
+    : [];
 
   const navItem = (entry: NavEntry) => (
     <NavItem
-      key={entry.path}
-      itemId={entry.path}
-      to={entry.path}
-      isActive={location.pathname.startsWith(entry.path)}
-      component={(props) => <Link {...props} to={entry.path} />}
+      key={entry.id}
+      itemId={entry.id}
+      to={entry.to}
+      isActive={entry.isActive}
+      component={(props) => <Link {...props} to={entry.to} />}
+      data-testid={`nav-${entry.id}`}
     >
-      {t(entry.labelKey)}
-      {entry.path === '/proposals' && pendingProposals > 0 && (
-        <Badge isRead className="pf-v6-u-ml-sm" data-testid="proposals-badge">
-          {pendingProposals}
-        </Badge>
-      )}
-      {entry.path === '/workspaces' && workspaceCount > 0 && (
-        <Badge isRead className="pf-v6-u-ml-sm" data-testid="workspaces-badge">
-          {workspaceCount}
-        </Badge>
-      )}
-      {entry.path === '/sandboxes' && sandboxCount > 0 && (
-        <Badge isRead className="pf-v6-u-ml-sm" data-testid="sandboxes-badge">
-          {sandboxCount}
+      {entry.label}
+      {entry.badge && entry.badge.count > 0 && (
+        <Badge
+          isRead
+          className="pf-v6-u-ml-sm"
+          data-testid={entry.badge.testId}
+        >
+          {entry.badge.count}
         </Badge>
       )}
     </NavItem>
   );
 
+  // Changing the workspace keeps the place: Providers of one becomes
+  // Providers of the other.
+  const switchTo = (value: string) => {
+    setSwitcherOpen(false);
+    const section = (inScope && here.section) || 'sandboxes';
+    navigate(
+      sectionPath(
+        value === ALL_WORKSPACES ? 'all' : { workspace: value },
+        section,
+      ),
+    );
+  };
+
+  const switcher = (workspaceNames.length > 0 || isPlatformAdmin) && (
+    <PageSidebarBody isFilled={false}>
+      <Content
+        component="small"
+        id="workspace-switcher-label"
+        className="pf-v6-u-display-block pf-v6-u-mb-xs"
+      >
+        {t('nav.workspace')}
+      </Content>
+      <Select
+        isOpen={isSwitcherOpen}
+        selected={isAllScope ? ALL_WORKSPACES : currentWorkspace}
+        onSelect={(_event, value) => switchTo(String(value))}
+        onOpenChange={setSwitcherOpen}
+        aria-labelledby="workspace-switcher-label"
+        isScrollable
+        toggle={(ref) => (
+          <MenuToggle
+            ref={ref}
+            isFullWidth
+            isExpanded={isSwitcherOpen}
+            onClick={() => setSwitcherOpen((open) => !open)}
+            aria-labelledby="workspace-switcher-label"
+            data-testid="workspace-switcher"
+          >
+            {isAllScope
+              ? t('nav.allWorkspacesScope')
+              : (currentWorkspace ?? t('nav.noWorkspace'))}
+          </MenuToggle>
+        )}
+      >
+        <SelectList>
+          {isPlatformAdmin && (
+            <SelectOption
+              value={ALL_WORKSPACES}
+              description={t('nav.allWorkspacesScopeDetail')}
+              data-testid="workspace-option-all"
+            >
+              {t('nav.allWorkspacesScope')}
+            </SelectOption>
+          )}
+          {isPlatformAdmin && workspaceNames.length > 0 && (
+            <Divider component="li" />
+          )}
+          {workspaceNames.map((name) => (
+            <SelectOption
+              key={name}
+              value={name}
+              data-testid={`workspace-option-${name}`}
+            >
+              {name}
+            </SelectOption>
+          ))}
+        </SelectList>
+      </Select>
+    </PageSidebarBody>
+  );
+
   const sidebar = (
     <PageSidebar>
+      {switcher}
       <PageSidebarBody>
         <Nav aria-label={t('nav.primary')}>
           <NavList>
-            {visibleEntries.filter((entry) => !entry.group).map(navItem)}
-            {groupedEntries.map((group) =>
-              hasSections ? (
-                // A rule above each section, so the entries below it read as
-                // starting there rather than as more of the set above.
-                <Fragment key={group.id}>
-                  <NavItemSeparator data-testid="nav-section-rule" />
-                  {group.entries.map(navItem)}
-                </Fragment>
-              ) : (
-                group.entries.map(navItem)
-              ),
+            {sectionEntries.map(navItem)}
+            {/* A rule between the workspace's things and the platform's, so
+                that the second set reads as starting there. */}
+            {sectionEntries.length > 0 && platformEntries.length > 0 && (
+              <NavItemSeparator data-testid="nav-section-rule" />
             )}
+            {platformEntries.map(navItem)}
           </NavList>
         </Nav>
       </PageSidebarBody>

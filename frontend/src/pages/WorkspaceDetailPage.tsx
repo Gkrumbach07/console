@@ -1,6 +1,5 @@
 import {
   Alert,
-  Badge,
   Bullseye,
   Button,
   Content,
@@ -10,6 +9,7 @@ import {
   DescriptionListTerm,
   Flex,
   FlexItem,
+  Label,
   PageSection,
   Spinner,
   Tab,
@@ -21,13 +21,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useFeatureFlags } from '../api/auth';
 import type { ApiError } from '../api/client';
-import { useProviders } from '../api/providers';
-import { useTemplates } from '../api/templates';
-import {
-  useMembers,
-  useWorkspace,
-  useWorkspaceServices,
-} from '../api/workspaces';
+import { useWorkspace, useWorkspaceServices } from '../api/workspaces';
 import LabelsList from '../components/LabelsList';
 import PhaseLabel from '../components/PhaseLabel';
 import ProfilesTab from '../components/provider/ProfilesTab';
@@ -36,6 +30,7 @@ import RefreshErrorAlert, {
 } from '../components/RefreshErrorAlert';
 import ServiceEndpointsTable from '../components/ServiceEndpointsTable';
 import TemplatesTab from '../components/TemplatesTab';
+import WorkspaceProposals from '../components/WorkspaceProposals';
 import { useSlots } from '../slots';
 import { formatTimestamp } from '../utils/formatters';
 import MemberListPage from './MemberListPage';
@@ -43,8 +38,51 @@ import ProviderListPage from './ProviderListPage';
 import SandboxListPage from './SandboxListPage';
 import type { CredentialInputSlot } from '../types';
 
+// The things of a workspace, each a page of its own under the workspace
+// that the navigation is in.
+export type WorkspaceSection =
+  | 'sandboxes'
+  | 'providers'
+  | 'proposals'
+  | 'templates'
+  | 'services'
+  | 'members';
+
+const SECTIONS: Record<WorkspaceSection, { title: string; intro: string }> = {
+  sandboxes: {
+    title: 'Sandboxes',
+    intro:
+      'Secure environments for agents and tools, each reaching only what it is allowed.',
+  },
+  providers: {
+    title: 'Providers',
+    intro:
+      'The credentials sandboxes use to reach models and services, and the profiles they are made from.',
+  },
+  proposals: {
+    title: 'Proposals',
+    intro:
+      'Requests the sandboxes had blocked, waiting to be allowed or rejected.',
+  },
+  templates: {
+    title: 'Templates',
+    intro:
+      'Reusable sandbox setups: an image, a command, an environment and resources.',
+  },
+  services: {
+    title: 'Services',
+    intro: 'Ports that sandboxes expose.',
+  },
+  members: {
+    title: 'Members',
+    intro: 'Who may use this workspace, and as what.',
+  },
+};
+
 type WorkspaceDetailPageProps = {
   workspace: string;
+  // Which of the workspace's things the page shows.
+  section?: WorkspaceSection;
   onSelectSandbox?: (name: string) => void;
   onViewSandbox?: (name: string, tab?: string) => void;
   onSelectProvider?: (name: string) => void;
@@ -57,6 +95,7 @@ const TabPanel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
   workspace,
+  section = 'sandboxes',
   onSelectSandbox,
   onViewSandbox,
   onSelectProvider,
@@ -66,22 +105,21 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
   const resolvedCredentialInput =
     renderCredentialInput ?? slots.credentialInput;
   const workspaceQuery = useWorkspace(workspace);
-  const templateCount = useTemplates(workspace);
-  const providerCount = useProviders(workspace);
-  const memberCount = useMembers(workspace);
   const features = useFeatureFlags();
   const services = useWorkspaceServices(workspace, {
-    enabled: features.services,
+    enabled: features.services && section === 'services',
   });
   const navigate = useNavigate();
-  // The tab is in the URL (?tab=providers), like the sandbox page's, so that
-  // a link can open the workspace on the tab it is about.
+  // Profiles sit behind Providers: a provider is made from one, and the two
+  // are managed together. Which of the two is shown is in the URL
+  // (?tab=profiles), so that a link can open on it.
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'sandboxes';
-  const setActiveTab = (key: string | number) => {
-    const tab = String(key);
-    setSearchParams(tab === 'sandboxes' ? {} : { tab }, { replace: true });
-  };
+  const providersTab =
+    searchParams.get('tab') === 'profiles' ? 'profiles' : 'providers';
+  const setProvidersTab = (key: string | number) =>
+    setSearchParams(key === 'profiles' ? { tab: 'profiles' } : {}, {
+      replace: true,
+    });
 
   // A service endpoint is exposed and deleted on its sandbox's Services tab.
   const viewSandboxServices = (name: string) => {
@@ -151,6 +189,9 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
     );
   }
 
+  const { title, intro } = SECTIONS[section];
+  const details = workspaceQuery.data;
+
   return (
     <>
       <PageSection>
@@ -168,15 +209,25 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
           gap={{ default: 'gapMd' }}
         >
           <FlexItem>
-            <Title headingLevel="h1">{workspace}</Title>
+            <Title headingLevel="h1" data-testid="workspace-section-title">
+              {title}
+            </Title>
           </FlexItem>
-          {workspaceQuery.data && (
+          <FlexItem>
+            <Label isCompact variant="outline" data-testid="workspace-name">
+              {workspace}
+            </Label>
+          </FlexItem>
+          {details && details.phase !== 'ACTIVE' && (
             <FlexItem>
-              <PhaseLabel phase={workspaceQuery.data.phase} />
+              <PhaseLabel phase={details.phase} />
             </FlexItem>
           )}
         </Flex>
-        {workspaceQuery.data && (
+        <Content component="p">{intro}</Content>
+        {/* What the gateway holds about the workspace itself, beside the
+            people in it. */}
+        {section === 'members' && details && (
           <DescriptionList
             isHorizontal
             isCompact
@@ -186,135 +237,80 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
             <DescriptionListGroup>
               <DescriptionListTerm>ID</DescriptionListTerm>
               <DescriptionListDescription>
-                {workspaceQuery.data.metadata.id || '-'}
+                {details.metadata.id || '-'}
               </DescriptionListDescription>
             </DescriptionListGroup>
             <DescriptionListGroup>
               <DescriptionListTerm>Resource version</DescriptionListTerm>
               <DescriptionListDescription>
-                {workspaceQuery.data.metadata.resourceVersion}
+                {details.metadata.resourceVersion}
               </DescriptionListDescription>
             </DescriptionListGroup>
             <DescriptionListGroup>
               <DescriptionListTerm>Created</DescriptionListTerm>
               <DescriptionListDescription>
-                {formatTimestamp(workspaceQuery.data.metadata.createdAtMs)}
+                {formatTimestamp(details.metadata.createdAtMs)}
               </DescriptionListDescription>
             </DescriptionListGroup>
             <DescriptionListGroup>
               <DescriptionListTerm>Labels</DescriptionListTerm>
               <DescriptionListDescription>
-                <LabelsList labels={workspaceQuery.data.metadata.labels} />
+                <LabelsList labels={details.metadata.labels} />
               </DescriptionListDescription>
             </DescriptionListGroup>
           </DescriptionList>
         )}
       </PageSection>
       <PageSection>
-        <Tabs
-          activeKey={activeTab}
-          onSelect={(_event, key) => setActiveTab(key)}
-          aria-label="Workspace resources"
-        >
-          <Tab
-            eventKey="sandboxes"
-            title={<TabTitleText>Sandboxes</TabTitleText>}
-            data-testid="tab-sandboxes"
+        {section === 'sandboxes' && (
+          <SandboxListPage
+            workspace={workspace}
+            onSelect={onSelectSandbox}
+            onViewSandbox={onViewSandbox}
+          />
+        )}
+        {section === 'providers' && (
+          <Tabs
+            activeKey={providersTab}
+            onSelect={(_event, key) => setProvidersTab(key)}
+            aria-label="Providers and their profiles"
           >
-            <TabPanel>
-              <SandboxListPage
-                workspace={workspace}
-                onSelect={onSelectSandbox}
-                onViewSandbox={onViewSandbox}
-              />
-            </TabPanel>
-          </Tab>
-          <Tab
-            eventKey="templates"
-            title={
-              <TabTitleText>
-                Templates{' '}
-                {templateCount.data && (
-                  <Badge isRead>{templateCount.data.length}</Badge>
-                )}
-              </TabTitleText>
-            }
-            data-testid="tab-templates"
-          >
-            <TabPanel>
-              <TemplatesTab workspace={workspace} />
-            </TabPanel>
-          </Tab>
-          <Tab
-            eventKey="providers"
-            title={
-              <TabTitleText>
-                Providers{' '}
-                {providerCount.data && (
-                  <Badge isRead>{providerCount.data.length}</Badge>
-                )}
-              </TabTitleText>
-            }
-            data-testid="tab-providers"
-          >
-            <TabPanel>
-              <ProviderListPage
-                workspace={workspace}
-                onSelect={onSelectProvider}
-                renderCredentialInput={resolvedCredentialInput}
-              />
-            </TabPanel>
-          </Tab>
-          <Tab
-            eventKey="members"
-            title={
-              <TabTitleText>
-                Members{' '}
-                {memberCount.data && (
-                  <Badge isRead>{memberCount.data.length}</Badge>
-                )}
-              </TabTitleText>
-            }
-            data-testid="tab-members"
-          >
-            <TabPanel>
-              <MemberListPage workspace={workspace} />
-            </TabPanel>
-          </Tab>
-          {features.services && (
             <Tab
-              eventKey="services"
-              title={
-                <TabTitleText>
-                  Services{' '}
-                  {services.data && (
-                    <Badge isRead>{services.data.length}</Badge>
-                  )}
-                </TabTitleText>
-              }
-              data-testid="tab-services"
+              eventKey="providers"
+              title={<TabTitleText>Providers</TabTitleText>}
+              data-testid="tab-providers"
             >
               <TabPanel>
-                <ServiceEndpointsTable
-                  query={services}
+                <ProviderListPage
                   workspace={workspace}
-                  onSelectSandbox={(_workspace, name) =>
-                    viewSandboxServices(name)
-                  }
+                  onSelect={onSelectProvider}
+                  renderCredentialInput={resolvedCredentialInput}
                 />
               </TabPanel>
             </Tab>
-          )}
-          <Tab
-            eventKey="profiles"
-            title={<TabTitleText>Profiles</TabTitleText>}
-            data-testid="tab-profiles"
-          >
-            <TabPanel>
-              <ProfilesTab workspace={workspace} />
-            </TabPanel>
-          </Tab>
-        </Tabs>
+            <Tab
+              eventKey="profiles"
+              title={<TabTitleText>Profiles</TabTitleText>}
+              data-testid="tab-profiles"
+            >
+              <TabPanel>
+                <ProfilesTab workspace={workspace} />
+              </TabPanel>
+            </Tab>
+          </Tabs>
+        )}
+        {section === 'proposals' && (
+          <WorkspaceProposals workspace={workspace} />
+        )}
+        {section === 'templates' && <TemplatesTab workspace={workspace} />}
+        {section === 'services' && (
+          <ServiceEndpointsTable
+            query={services}
+            workspace={workspace}
+            onSelectSandbox={(_workspace, name) => viewSandboxServices(name)}
+          />
+        )}
+        {section === 'members' && <MemberListPage workspace={workspace} />}
       </PageSection>
     </>
   );

@@ -7,6 +7,12 @@ import type { Sandbox } from '../../types';
 // The page lists the gateway's pages of sandboxes (AllSandboxList). The
 // fixtures are written as whole lists, and pagedResult serves them a page at
 // a time, the way main's tests of the same list do.
+// Creating from here asks which workspace.
+jest.mock('../../api/workspaces', () => ({
+  useWorkspaces: jest.fn(() => ({
+    data: [{ metadata: { name: 'team-a' } }, { metadata: { name: 'team b' } }],
+  })),
+}));
 jest.mock('../../api/allWorkspaces', () => ({
   useAllSandboxes: jest.fn(),
   useAllSandboxPage: jest.fn(),
@@ -341,6 +347,20 @@ describe('AllSandboxesPage', () => {
 
     expect(screen.getByTestId('all-sandboxes-empty')).toHaveTextContent(
       'No workspace on this gateway has a sandbox.',
+    );
+  });
+  // A sandbox is created in one workspace, so creating from the list of all
+  // of them asks which.
+  it('creates a sandbox in the workspace that is chosen', async () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId('all-sandboxes-create'));
+    fireEvent.click(
+      within(
+        await screen.findByTestId('all-sandboxes-create-team b'),
+      ).getByRole('menuitem'),
+    );
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/workspaces/team%20b/create-sandbox',
     );
   });
 });

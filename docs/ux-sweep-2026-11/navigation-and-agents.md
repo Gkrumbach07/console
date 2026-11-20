@@ -121,3 +121,40 @@ Platform                       (platform admin)
 It is backed by the API as it is: exactly four lists take the all-workspaces
 scope, for platform admins only (hard fact 12), which is what the switcher's
 "All workspaces" offers.
+
+### Built (2026-11-20)
+
+- **The switcher** sits at the top of the sidebar and lists the workspaces
+  the person can see; platform admins also get "All workspaces". Changing it
+  keeps the place: Providers of one workspace becomes Providers of the other.
+  On a platform page the navigation stays in the workspace last worked in
+  (kept in the browser), and none of its entries is marked current.
+- **Each thing of a workspace is a page of its own** under
+  `/workspaces/{ws}/`: `sandboxes`, `providers` (with Profiles on a second
+  tab), `proposals`, `templates`, `services`, `members` (with the workspace's
+  own details). The one-page view with six tabs is gone; its URL and its
+  `?tab=` links redirect.
+- **Proposals in a workspace is a queue to decide from:** each sandbox's
+  blocked requests are on the page with Allow, Change and Reject, flagged
+  ones first. The first three sandboxes are open; the rest are read when
+  opened.
+- **All workspaces** leads the same entries to the lists the gateway serves
+  across workspaces (`/sandboxes`, `/all-workspaces`, `/proposals`). The
+  Sandboxes list there has "Create sandbox in…", which asks which workspace.
+- **Home** is the sandboxes of the workspace last worked in, for everyone.
+  The logo leads there. A sandbox's breadcrumb is "Sandboxes > name".
+- The platform's pages (Gateway, Workspaces, Provider profiles, Global
+  policy, Settings) are a second group, for platform admins.
+
+Different from the sketch, or not done:
+- Someone who is not a platform admin has no "All workspaces", so no entry
+  for the proposals of all their workspaces at once (the page is still at
+  `/proposals`).
+- The switcher is a plain list: no search, which a gateway with many
+  workspaces will want.
+- "Resources" survives as the title of the all-workspaces Providers,
+  Templates and Services page; the three were not split into pages.
+- Proposals across all workspaces is still the list of links, not the
+  queue.
+- Checked with the sign-in off (one platform admin); not looked at as a
+  standard user in the browser, only in tests.

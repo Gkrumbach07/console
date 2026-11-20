@@ -17,7 +17,8 @@ jest.mock('../../api/auth', () => ({
 // The shell counts the rules waiting for a decision for its Proposals badge.
 // Nothing is pending here; AppLayout.navigation.spec covers the badge itself.
 jest.mock('../../api/draftSummary', () => ({
-  useAllWorkspacesDraftSummary: () => ({ totalPending: 0 }),
+  useAllWorkspacesDraftSummary: () => ({ totalPending: 0, items: [] }),
+  useWorkspaceDraftSummary: () => ({ totalPending: 0, items: [] }),
 }));
 // The shell counts sandboxes and workspaces for their nav badges. None here.
 jest.mock('../../api/allWorkspaces', () => ({
@@ -202,10 +203,12 @@ describe('AppLayout platform-admin gating', () => {
     mockUser({ roles: ['user'] });
   });
 
-  it('hides Gateway, Global policy, and Settings nav for a User', () => {
+  // The platform's pages, the Workspaces list among them, are a platform
+  // admin's. Anyone else reaches their workspaces from the switcher.
+  it('hides the platform pages from a User', () => {
     renderShell('/workspaces', page);
 
-    expect(navLink('Workspaces')).toBeInTheDocument();
+    expect(missingNavLink('Workspaces')).not.toBeInTheDocument();
     expect(missingNavLink('Gateway')).not.toBeInTheDocument();
     expect(missingNavLink('Global policy')).not.toBeInTheDocument();
     expect(missingNavLink('Settings')).not.toBeInTheDocument();
@@ -221,21 +224,15 @@ describe('AppLayout platform-admin gating', () => {
     expect(navLink('Settings')).toBeInTheDocument();
   });
 
-  it('points the logo home at /workspaces for a User', () => {
+  // Home is the same for everyone: the route there leads to the sandboxes
+  // of the workspace last worked in.
+  it.each([['user'], ['admin']])('points the logo home for a %s', (role) => {
+    mockUser({ roles: [role] });
     renderShell('/workspaces', page);
 
     expect(
       screen.getByAltText('OpenShell Dashboard').closest('a'),
-    ).toHaveAttribute('href', '/workspaces');
-  });
-
-  it('points the logo home at /gateway for a Platform Admin', () => {
-    mockUser({ roles: ['admin'] });
-    renderShell('/workspaces', page);
-
-    expect(
-      screen.getByAltText('OpenShell Dashboard').closest('a'),
-    ).toHaveAttribute('href', '/gateway');
+    ).toHaveAttribute('href', '/');
   });
 });
 

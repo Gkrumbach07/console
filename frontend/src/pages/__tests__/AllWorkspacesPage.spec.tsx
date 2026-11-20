@@ -175,9 +175,10 @@ describe('AllWorkspacesPage', () => {
     openTab(/Services/);
     fireEvent.click(screen.getByTestId('service-sandbox-link-team-b-agent'));
     expect(onSelectSandbox).toHaveBeenCalledWith('team-b', 'agent', 'services');
-    // The router was left alone.
+    // The router went nowhere: the tab that was opened is in the URL, and
+    // nothing else changed.
     expect(screen.getByTestId('location')).toHaveTextContent(
-      /^\/all-workspaces$/,
+      /^\/all-workspaces\?tab=services$/,
     );
   });
 

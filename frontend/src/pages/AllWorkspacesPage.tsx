@@ -11,7 +11,7 @@ import {
   Tabs,
   Title,
 } from '@patternfly/react-core';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import {
   useAllProviders,
@@ -54,7 +54,14 @@ const AllWorkspacesPage: React.FC<AllWorkspacesPageProps> = ({
 }) => {
   const navigate = useNavigate();
   const features = useFeatureFlags();
-  const [activeTab, setActiveTab] = useState<string | number>('providers');
+  // The tab is in the URL, so that the navigation's Providers, Templates and
+  // Services entries can each open the page on theirs.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'providers';
+  const setActiveTab = (key: string | number) =>
+    setSearchParams(key === 'providers' ? {} : { tab: String(key) }, {
+      replace: true,
+    });
   const [templateSelector, setTemplateSelector] = useState('');
   const providers = useAllProviders();
   const templates = useAllTemplates(templateSelector || undefined);
