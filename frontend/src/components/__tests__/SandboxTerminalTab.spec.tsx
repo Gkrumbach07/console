@@ -125,6 +125,23 @@ describe('SandboxTerminalTab', () => {
     expect(screen.getByText('Connected')).toBeInTheDocument();
   });
 
+  // Run an agent hands the agent's command over, so the terminal opens on
+  // the agent and not on a shell the person then has to type it into.
+  it('runs the command it was opened with, and shows it in the options', () => {
+    render(
+      <SandboxTerminalTab
+        workspace="team a"
+        sandboxName="agent-1"
+        initialCommand={['opencode']}
+      />,
+    );
+    const socket = lastSocket();
+    act(() => socket.open());
+    expect(socket.sent).toEqual([
+      JSON.stringify({ type: 'start', command: ['opencode'] }),
+    ]);
+  });
+
   it('starts a new session with the chosen command, directory, environment and login-shell option', () => {
     renderTab();
     const first = lastSocket();

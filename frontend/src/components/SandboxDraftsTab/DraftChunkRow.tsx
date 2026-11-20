@@ -9,6 +9,7 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  ExpandableSection,
   Flex,
   FlexItem,
   Label,
@@ -23,9 +24,22 @@ import { ExpandableRowContent, Tbody, Td, Tr } from '@patternfly/react-table';
 
 import { useI18n } from '../../i18n';
 import { formatTimestamp } from '../../utils/formatters';
+import {
+  allowSentence,
+  isSimpleRule,
+  proposalChanges,
+  proposalHeadline,
+} from './proposalWords';
 import { approvalAnnotation, chunkStatusColor, chunkStatusIcon } from './utils';
 import type { useDraftActions } from './useDraftActions';
-import type { PolicyChunk } from '../../types';
+import type { PolicyChunk, PolicyUpdateResult } from '../../types';
+
+// The number of columns the proposals table has, the expand toggle and the
+// actions included.
+export const draftColumns = (isWorkspaceAdmin: boolean): number =>
+  isWorkspaceAdmin ? 5 : 4;
+
+const changeWords = { adds: 'Adds', changes: 'Changes', removes: 'Removes' };
 
 type DraftChunkRowProps = {
   chunk: PolicyChunk;
@@ -37,6 +51,10 @@ type DraftChunkRowProps = {
   isGlobalPolicy?: boolean;
   onToggle: () => void;
   onEdit: (chunk: PolicyChunk) => void;
+  // Opens the add-host dialog on the proposed rule.
+  onChange: (chunk: PolicyChunk) => void;
+  // The gateway took the approval and wrote this revision of the policy.
+  onAllowed: (chunk: PolicyChunk, result: PolicyUpdateResult) => void;
   actions: ReturnType<typeof useDraftActions>;
   rejecting: string | null;
   rejectReason: string;
@@ -52,6 +70,8 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
   isGlobalPolicy = false,
   onToggle,
   onEdit,
+  onChange,
+  onAllowed,
   actions,
   rejecting,
   rejectReason,
@@ -72,6 +92,13 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
     chunk.status === 'pending' ||
     (chunk.status === 'approved' && !isGlobalPolicy);
 
+  const headline = proposalHeadline(chunk);
+  const allows = allowSentence(chunk);
+  const changes = proposalChanges(chunk);
+  const [isJsonOpen, setJsonOpen] = React.useState(false);
+  const isAllowing =
+    approve.isPending && approve.variables?.chunkId === chunk.id;
+
   const startRejecting = () => {
     onSetRejecting(chunk.id);
     if (!isOpen) onToggle();
@@ -87,10 +114,36 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
             onToggle,
           }}
         />
-        <Td dataLabel="Rule">
+        <Td dataLabel="Request">
           <Stack>
-            <StackItem>
-              {chunk.ruleName || chunk.id}
+            <StackItem data-testid={`chunk-headline-${chunk.id}`}>
+              {/* "curl was blocked from pypi.org:443": who asked for what,
+                  which is how the person whose agent stopped thinks of it.
+                  The rule's own name is in the details. */}
+              {headline.target ? (
+                <>
+                  {headline.program ? (
+                    <strong>{headline.program}</strong>
+                  ) : (
+                    'A program'
+                  )}
+                  {chunk.status === 'approved'
+                    ? ' may reach '
+                    : chunk.status === 'rejected'
+                      ? ' stays blocked from '
+                      : headline.wasBlocked
+                        ? ' was blocked from '
+                        : ' asks to reach '}
+                  <strong>{headline.target}</strong>
+                </>
+              ) : (
+                chunk.ruleName || chunk.id
+              )}
+              {headline.wasBlocked && chunk.status === 'pending' && (
+                <Content component="small" className="pf-v6-u-ml-sm">
+                  · {chunk.hitCount} {chunk.hitCount === 1 ? 'time' : 'times'}
+                </Content>
+              )}
               {/* The one label that stays in the table: it marks the chunks
                   the gateway skips on an approve-all, so it has to be
                   readable without opening the row. */}
@@ -100,9 +153,12 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
                 </Label>
               )}
             </StackItem>
-            {chunk.rationale && (
-              <StackItem>
-                <Content component="small">{chunk.rationale}</Content>
+            {/* What approving admits, said before it is approved: a
+                proposal is scoped to the program that was denied, so another
+                program asking for the same host is denied again. */}
+            {allows && chunk.status === 'pending' && (
+              <StackItem data-testid={`chunk-scope-${chunk.id}`}>
+                <Content component="small">{allows}</Content>
               </StackItem>
             )}
           </Stack>
@@ -137,12 +193,8 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
             </Label>
           )}
         </Td>
-        <Td dataLabel="Confidence">{chunk.confidence.toFixed(2)}</Td>
-        <Td dataLabel="Denied">
-          {chunk.hitCount} {chunk.hitCount === 1 ? 'time' : 'times'}
-        </Td>
-        <Td dataLabel="Proposed">
-          <Timestamp date={new Date(chunk.createdAtMs)} />
+        <Td dataLabel="Last seen">
+          <Timestamp date={new Date(chunk.lastSeenMs || chunk.createdAtMs)} />
         </Td>
         {isWorkspaceAdmin && (
           <Td isActionCell>
@@ -150,30 +202,40 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
               {canApprove && (
                 <FlexItem>
                   <Button
-                    variant="secondary"
+                    variant="primary"
                     size="sm"
                     onClick={() =>
-                      approve.mutate({
-                        chunkId: chunk.id,
-                        reviewToken: chunk.reviewToken,
-                      })
+                      approve.mutate(
+                        {
+                          chunkId: chunk.id,
+                          reviewToken: chunk.reviewToken,
+                        },
+                        { onSuccess: (result) => onAllowed(chunk, result) },
+                      )
                     }
                     isDisabled={approve.isPending}
+                    isLoading={isAllowing}
                     data-testid={`approve-chunk-${chunk.id}`}
                   >
-                    Approve
+                    Allow
                   </Button>
                 </FlexItem>
               )}
               {chunk.status === 'pending' && (
                 <FlexItem>
+                  {/* The dialog when it can show the rule whole; the rule as
+                      JSON when it says more than the dialog has fields for. */}
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => onEdit(chunk)}
-                    data-testid={`edit-chunk-${chunk.id}`}
+                    onClick={() =>
+                      isSimpleRule(chunk.proposedRule)
+                        ? onChange(chunk)
+                        : onEdit(chunk)
+                    }
+                    data-testid={`change-chunk-${chunk.id}`}
                   >
-                    Edit
+                    Change…
                   </Button>
                 </FlexItem>
               )}
@@ -209,7 +271,7 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
         )}
       </Tr>
       <Tr isExpanded={isOpen}>
-        <Td dataLabel="Details" colSpan={isWorkspaceAdmin ? 7 : 6}>
+        <Td dataLabel="Details" colSpan={draftColumns(isWorkspaceAdmin)}>
           <ExpandableRowContent>
             <Stack hasGutter>
               {isWorkspaceAdmin && canReject && rejecting === chunk.id && (
@@ -278,12 +340,56 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
                   </Alert>
                 </StackItem>
               )}
+              {changes.length > 0 && (
+                <StackItem data-testid={`chunk-changes-${chunk.id}`}>
+                  <Content component="h6">
+                    {chunk.status === 'approved'
+                      ? 'What approving changed'
+                      : 'What allowing changes'}
+                  </Content>
+                  {changes.map((change) => (
+                    <Content
+                      component="p"
+                      key={`${change.kind}-${change.name}`}
+                    >
+                      <strong>{changeWords[change.kind]}</strong>{' '}
+                      {change.endpoints.join('; ') || change.name}
+                      <br />
+                      <Content component="small">
+                        {change.programs.length > 0
+                          ? `from ${change.programs.join(', ')}`
+                          : 'from no program, so nothing can use it'}
+                      </Content>
+                    </Content>
+                  ))}
+                </StackItem>
+              )}
               <StackItem>
                 <DescriptionList
                   isCompact
                   isHorizontal
                   data-testid={`chunk-details-${chunk.id}`}
                 >
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Rule</DescriptionListTerm>
+                    <DescriptionListDescription className="pf-v6-u-font-family-monospace">
+                      {chunk.ruleName || '-'}
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                  {chunk.rationale && (
+                    <DescriptionListGroup>
+                      <DescriptionListTerm>Why</DescriptionListTerm>
+                      <DescriptionListDescription>
+                        {chunk.rationale}
+                      </DescriptionListDescription>
+                    </DescriptionListGroup>
+                  )}
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Confidence</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      {Math.round(chunk.confidence * 100)}%
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
                   {/* What the row used to carry beside the rule name, less
                       the security flag, which stays in the table. */}
                   {(annotation || chunk.stage) && (
@@ -421,11 +527,31 @@ const DraftChunkRow: React.FC<DraftChunkRowProps> = ({
               </StackItem>
               {chunk.proposedRule && (
                 <StackItem>
-                  <CodeBlock>
-                    <CodeBlockCode>
-                      {JSON.stringify(chunk.proposedRule, null, 2)}
-                    </CodeBlockCode>
-                  </CodeBlock>
+                  <ExpandableSection
+                    toggleText="The rule as JSON"
+                    isExpanded={isJsonOpen}
+                    onToggle={(_event, open) => setJsonOpen(open)}
+                    data-testid={`chunk-json-${chunk.id}`}
+                  >
+                    <CodeBlock
+                      actions={
+                        isWorkspaceAdmin && chunk.status === 'pending' ? (
+                          <Button
+                            variant="link"
+                            isInline
+                            onClick={() => onEdit(chunk)}
+                            data-testid={`edit-chunk-${chunk.id}`}
+                          >
+                            Edit as JSON
+                          </Button>
+                        ) : undefined
+                      }
+                    >
+                      <CodeBlockCode>
+                        {JSON.stringify(chunk.proposedRule, null, 2)}
+                      </CodeBlockCode>
+                    </CodeBlock>
+                  </ExpandableSection>
                 </StackItem>
               )}
             </Stack>

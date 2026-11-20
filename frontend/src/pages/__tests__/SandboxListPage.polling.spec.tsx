@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 import SandboxListPage from '../SandboxListPage';
 import type { Sandbox } from '../../types';
@@ -44,24 +44,6 @@ jest.mock('../../hooks/useBulkDelete', () => ({
   })),
 }));
 jest.mock('../../slots', () => ({ useSlots: () => ({}) }));
-
-// Stands in for the Create sandbox form: a field that holds what was typed
-// for as long as the form stays mounted, which is what is under test.
-jest.mock('../../components/CreateSandboxModal', () => ({
-  __esModule: true,
-  default: ({ isOpen }: { isOpen: boolean }) => {
-    const [name, setName] = jest
-      .requireActual<typeof React>('react')
-      .useState('');
-    return isOpen ? (
-      <input
-        data-testid="create-form-name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-    ) : null;
-  },
-}));
 
 import { useSandboxes, useSandboxPage } from '../../api/sandboxes';
 import { pagedResult } from './pagedHookMock';
@@ -116,9 +98,6 @@ const shownNames = (): string[] =>
     .queryAllByTestId(/^sandbox-link-/)
     .map((link) => link.textContent ?? '');
 
-const formName = () =>
-  screen.getByTestId('create-form-name') as HTMLInputElement;
-
 const selectRow = (name: string) => {
   const row = screen.getByTestId(`sandbox-link-${name}`).closest('tr');
   fireEvent.click(within(row as HTMLElement).getByRole('checkbox'));
@@ -151,25 +130,6 @@ describe('SandboxListPage while it is being used', () => {
       );
       expect(
         screen.queryByText('Failed to load sandboxes'),
-      ).not.toBeInTheDocument();
-    });
-
-    it('keeps an open Create sandbox form and what was typed into it', () => {
-      mockUseSandboxes.mockReturnValue(loaded(sandboxes(2)));
-      const view = render(page());
-      fireEvent.click(screen.getByTestId('create-sandbox'));
-      fireEvent.change(formName(), { target: { value: 'half-typed' } });
-
-      mockUseSandboxes.mockReturnValue(refreshFailed(sandboxes(2)));
-      view.rerender(page());
-      expect(formName()).toHaveValue('half-typed');
-
-      // And through the refresh that works again.
-      mockUseSandboxes.mockReturnValue(loaded(sandboxes(2)));
-      view.rerender(page());
-      expect(formName()).toHaveValue('half-typed');
-      expect(
-        screen.queryByTestId('sandboxes-refresh-error'),
       ).not.toBeInTheDocument();
     });
 
@@ -223,35 +183,56 @@ describe('SandboxListPage while it is being used', () => {
     });
   });
 
-  // The empty state and the list are different trees. The Create sandbox
-  // form has to sit outside both, or a poll that crosses from one to the
-  // other mounts a new, empty form in place of the one being filled in.
-  describe('a list that empties or fills under an open Create sandbox form', () => {
-    it('keeps what was typed when the first sandbox appears', () => {
-      mockUseSandboxes.mockReturnValue(loaded([]));
-      const view = render(page());
-      fireEvent.click(screen.getByTestId('create-sandbox-empty'));
-      fireEvent.change(formName(), { target: { value: 'my-first' } });
+  // Creating a sandbox is a page of its own, so a poll of the list can no
+  // longer take a half-filled form with it.
+  describe('Create sandbox', () => {
+    const withCreatePage = () => (
+      <MemoryRouter initialEntries={['/workspaces/team-a']}>
+        <Routes>
+          <Route
+            path="/workspaces/team-a"
+            element={<SandboxListPage workspace="team-a" />}
+          />
+          <Route
+            path="/workspaces/team-a/create-sandbox"
+            element={<div data-testid="create-page" />}
+          />
+          <Route
+            path="/workspaces/team-a/run-agent"
+            element={<div data-testid="run-agent-page" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
 
-      // Somebody else created one, and the poll lands.
+    it('opens the create page from the toolbar', () => {
       mockUseSandboxes.mockReturnValue(loaded(sandboxes(1)));
-      view.rerender(page());
-
-      expect(shownNames()).toEqual(['sb-01']);
-      expect(formName()).toHaveValue('my-first');
+      render(withCreatePage());
+      fireEvent.click(screen.getByTestId('create-sandbox'));
+      expect(screen.getByTestId('create-page')).toBeInTheDocument();
     });
 
-    it('keeps what was typed when the last sandbox goes', () => {
-      mockUseSandboxes.mockReturnValue(loaded(sandboxes(1)));
-      const view = render(page());
-      fireEvent.click(screen.getByTestId('create-sandbox'));
-      fireEvent.change(formName(), { target: { value: 'another' } });
-
+    // The way from nothing to an agent: offered first where there is no
+    // sandbox yet, and beside Create sandbox where there are some.
+    it('offers Run an agent first on an empty workspace', () => {
       mockUseSandboxes.mockReturnValue(loaded([]));
-      view.rerender(page());
+      render(withCreatePage());
+      fireEvent.click(screen.getByTestId('run-agent-empty'));
+      expect(screen.getByTestId('run-agent-page')).toBeInTheDocument();
+    });
 
-      expect(screen.getByTestId('create-sandbox-empty')).toBeInTheDocument();
-      expect(formName()).toHaveValue('another');
+    it('offers Run an agent in the toolbar', () => {
+      mockUseSandboxes.mockReturnValue(loaded(sandboxes(1)));
+      render(withCreatePage());
+      fireEvent.click(screen.getByTestId('run-agent'));
+      expect(screen.getByTestId('run-agent-page')).toBeInTheDocument();
+    });
+
+    it('opens the create page from the empty state', () => {
+      mockUseSandboxes.mockReturnValue(loaded([]));
+      render(withCreatePage());
+      fireEvent.click(screen.getByTestId('create-sandbox-empty'));
+      expect(screen.getByTestId('create-page')).toBeInTheDocument();
     });
   });
 

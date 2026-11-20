@@ -60,6 +60,7 @@ import ConfirmDeleteModal from '../ConfirmDeleteModal';
 import CreateProfileModal from '../CreateProfileModal';
 import RefreshErrorAlert, { isRefreshError } from '../RefreshErrorAlert';
 import ProfileFileModal from './ProfileFileModal';
+import UpstreamProfilesLink from './UpstreamProfilesLink';
 
 type ProfilesPanelProps = {
   // The workspace whose profiles are shown, or PLATFORM_PROFILE_SCOPE.
@@ -395,10 +396,11 @@ const ProfilesPanel: React.FC<ProfilesPanelProps> = ({ scope, canManage }) => {
           icon={PlusCircleIcon}
         >
           <EmptyStateBody>
-            Provider profiles define the credential schema and network endpoints
-            for a provider type. A gateway serves the profiles that were
-            imported into it: import profile files, such as the examples
-            OpenShell publishes, or create a profile here.
+            A provider can be created only from a profile, and a new gateway has
+            none. A profile defines the credentials, network endpoints and
+            programs of a provider type. Import profile files, such as{' '}
+            <UpstreamProfilesLink />, after editing their binaries to match your
+            image, or create a profile here.
           </EmptyStateBody>
           {canManage && (
             <EmptyStateFooter>

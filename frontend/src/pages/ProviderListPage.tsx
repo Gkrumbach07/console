@@ -178,8 +178,17 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
       {totalCount === 0 ? (
         <EmptyState variant="lg" titleText="No providers" icon={PlusCircleIcon}>
           <EmptyStateBody>
-            Providers register inference endpoints and service credentials
-            (Anthropic, NVIDIA NIM, GitLab, ...) that sandboxes can use.
+            A provider holds the credentials a sandbox uses to reach a model or
+            a service, and opens the endpoints they are for. Attach it when you
+            create a sandbox.
+            {profiles.data !== undefined && profiles.data.length === 0 && (
+              <>
+                {' '}
+                Its type comes from a provider profile, and this workspace sees
+                none yet: import one on the Profiles tab or under Provider
+                profiles first.
+              </>
+            )}
           </EmptyStateBody>
           {isWorkspaceAdmin && (
             <EmptyStateFooter>

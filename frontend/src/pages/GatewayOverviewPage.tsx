@@ -46,6 +46,7 @@ import { useAllProviders, useAllSandboxes } from '../api/allWorkspaces';
 import { useFeatureFlags } from '../api/auth';
 import { useAllWorkspacesDraftSummary } from '../api/draftSummary';
 import { useGatewayCompatibility, useGatewayInfo } from '../api/gateway';
+import { PLATFORM_PROFILE_SCOPE, useProviderProfiles } from '../api/providers';
 import {
   BUILD_COMMIT,
   GATEWAY_PAGE_POLL_MS,
@@ -355,6 +356,11 @@ const GatewayOverviewPage: React.FC = () => {
   // a gateway starts with `default`, so one that has only workspaces has
   // still not been used for anything.
   const isEmpty = sandboxCount === 0 && providerCount === 0;
+  // Gateway 0.1.x compiles in no provider profiles, so on a new gateway no
+  // provider can be created until one is imported. The platform's list is
+  // what every workspace sees.
+  const platformProfiles = useProviderProfiles(PLATFORM_PROFILE_SCOPE);
+  const hasProfiles = (platformProfiles.data ?? []).length > 0;
 
   // What is worth doing something about, each row leading to where it is
   // done. The gateway's own version verdict is not repeated here: it is in
@@ -859,16 +865,30 @@ const GatewayOverviewPage: React.FC = () => {
                         {t('getStarted.workspace')}
                       </Link>
                     </ProgressStep>
+                    <ProgressStep
+                      id="get-started-profile"
+                      titleId="get-started-profile-title"
+                      variant={hasProfiles ? 'success' : 'info'}
+                      isCurrent={!hasProfiles}
+                      description={t('getStarted.profileDetail')}
+                    >
+                      <Link
+                        to="/provider-profiles"
+                        data-testid="get-started-profile-link"
+                      >
+                        {t('getStarted.profile')}
+                      </Link>
+                    </ProgressStep>
                     {/* Providers are a tab of the workspace's own page. */}
                     <ProgressStep
                       id="get-started-provider"
                       titleId="get-started-provider-title"
-                      variant="info"
-                      isCurrent
+                      variant={hasProfiles ? 'info' : 'pending'}
+                      isCurrent={hasProfiles}
                       description={t('getStarted.providerDetail')}
                     >
                       <Link
-                        to="/workspaces/default"
+                        to="/workspaces/default?tab=providers"
                         data-testid="get-started-provider-link"
                       >
                         {t('getStarted.provider')}

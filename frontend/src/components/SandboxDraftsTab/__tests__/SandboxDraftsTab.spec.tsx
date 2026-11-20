@@ -19,6 +19,8 @@ let mockEditError: Error | null = null;
 let mockEffective: Partial<EffectivePolicy> | undefined;
 // Whether a rejection is on its way.
 let mockRejectPending = false;
+// The sandbox's policy as the tracker of an approval reads it.
+let mockSandboxPolicy: unknown;
 
 const mutation = (mutate: jest.Mock, error: Error | null = null) => ({
   mutate,
@@ -29,6 +31,8 @@ const mutation = (mutate: jest.Mock, error: Error | null = null) => ({
 });
 
 jest.mock('../../../api/policy', () => ({
+  POLICY_PENDING_WATCH_MS: 60_000,
+  useSandboxPolicy: jest.fn(() => ({ data: mockSandboxPolicy })),
   useDraftPolicy: jest.fn(),
   useEffectiveSandboxPolicy: jest.fn(() => ({ data: mockEffective })),
   useDraftHistory: jest.fn(() => ({ data: [], isLoading: false })),
@@ -237,13 +241,13 @@ describe('SandboxDraftsTab', () => {
 
   // PatternFly has no success button. Approve is a plain secondary button,
   // not one recoloured through PatternFly's private custom properties.
-  it('draws the approvals as plain secondary buttons', () => {
+  it('makes Allow the primary action of a row, and keeps the bulk approval secondary', () => {
     renderTab();
-    for (const id of ['approve-all-chunks', 'approve-chunk-c1']) {
-      const button = screen.getByTestId(id);
-      expect(button).toHaveClass('pf-m-secondary');
-      expect(button).not.toHaveAttribute('style');
-    }
+    expect(screen.getByTestId('approve-chunk-c1')).toHaveClass('pf-m-primary');
+    expect(screen.getByTestId('approve-chunk-c1')).toHaveTextContent('Allow');
+    expect(screen.getByTestId('approve-all-chunks')).toHaveClass(
+      'pf-m-secondary',
+    );
   });
 
   it('says how many were approved and how many skipped, and why', () => {
@@ -616,6 +620,141 @@ describe('SandboxDraftsTab', () => {
       expect(
         screen.queryByTestId('drafts-refresh-error'),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the day-2 loop', () => {
+    const blocked = chunk({
+      id: 'b1',
+      ruleName: 'allow_pypi_org_443',
+      binary: '/usr/bin/curl',
+      hitCount: 2,
+      reviewToken: 'tok-b1',
+      proposedRule: {
+        name: 'allow_pypi_org_443',
+        endpoints: [
+          { host: 'pypi.org', port: 443, ports: [443], advisorProposed: true },
+        ],
+        binaries: [{ path: '/usr/bin/curl' }],
+      },
+    });
+    const loop: DraftPolicy = { ...inbox, chunks: [blocked] };
+
+    afterEach(() => {
+      mockSandboxPolicy = undefined;
+      mockApprove.mockReset();
+      mockEdit.mockReset();
+      mockIsAdmin = true;
+    });
+
+    it('says which program was blocked from where, and what Allow lets through', () => {
+      renderTab(loop);
+      expect(screen.getByTestId('chunk-headline-b1')).toHaveTextContent(
+        'curl was blocked from pypi.org:443· 2 times',
+      );
+      expect(screen.getByTestId('chunk-scope-b1')).toHaveTextContent(
+        'Allows /usr/bin/curl to reach pypi.org:443, any traffic (not inspected). Other programs stay blocked.',
+      );
+    });
+
+    it('follows an approval until the sandbox has loaded it', () => {
+      mockApprove.mockImplementation((_args, options) =>
+        options.onSuccess({ version: 2 }),
+      );
+      mockSandboxPolicy = {
+        activeVersion: 1,
+        revisions: [{ version: 2, status: 'PENDING', createdAtMs: 0 }],
+      };
+      const { rerender } = renderTab(loop);
+      fireEvent.click(screen.getByTestId('approve-chunk-b1'));
+      expect(mockApprove.mock.calls[0][0]).toEqual({
+        chunkId: 'b1',
+        reviewToken: 'tok-b1',
+      });
+      expect(screen.getByTestId('allow-tracker-pending')).toHaveTextContent(
+        'Allowing curl → pypi.org:443',
+      );
+
+      mockSandboxPolicy = {
+        activeVersion: 2,
+        revisions: [{ version: 2, status: 'LOADED', createdAtMs: 0 }],
+      };
+      rerender(<SandboxDraftsTab workspace="team-a" sandboxName="sb1" />);
+      expect(screen.getByTestId('allow-tracker-loaded')).toHaveTextContent(
+        'Allowed: curl → pypi.org:443',
+      );
+    });
+
+    it('says why the request is still blocked when the revision fails to load', () => {
+      mockApprove.mockImplementation((_args, options) =>
+        options.onSuccess({ version: 2 }),
+      );
+      mockSandboxPolicy = {
+        activeVersion: 1,
+        revisions: [
+          {
+            version: 2,
+            status: 'FAILED',
+            loadError: 'bad tls',
+            createdAtMs: 0,
+          },
+        ],
+      };
+      renderTab(loop);
+      fireEvent.click(screen.getByTestId('approve-chunk-b1'));
+      expect(screen.getByTestId('allow-tracker-failed')).toHaveTextContent(
+        'bad tls',
+      );
+    });
+
+    it('tells someone who cannot decide who can', () => {
+      mockIsAdmin = false;
+      renderTab(loop);
+      expect(screen.getByTestId('drafts-ask-admin')).toHaveTextContent(
+        'only a workspace admin of team-a can allow it',
+      );
+      expect(screen.queryByTestId('approve-chunk-b1')).not.toBeInTheDocument();
+    });
+
+    it('changes a simple proposal in the add-host dialog, keeping the fields it has no field for', () => {
+      renderTab(loop);
+      fireEvent.click(screen.getByTestId('change-chunk-b1'));
+      expect(screen.getByTestId('add-host-host')).toHaveValue('pypi.org');
+      expect(screen.getByTestId('add-host-tcp')).toBeChecked();
+      fireEvent.click(screen.getByTestId('add-host-read-only'));
+      // Programs are a list: one typed and added with Enter.
+      const programs = screen.getByTestId('add-host-programs-input');
+      fireEvent.change(programs, { target: { value: '/usr/bin/git' } });
+      fireEvent.keyDown(programs, { key: 'Enter' });
+      fireEvent.click(screen.getByTestId('add-host-submit'));
+      expect(mockEdit.mock.calls[0][0]).toEqual({
+        chunkId: 'b1',
+        proposedRule: {
+          name: 'allow_pypi_org_443',
+          endpoints: [
+            {
+              host: 'pypi.org',
+              port: 443,
+              ports: [443],
+              advisorProposed: true,
+              protocol: 'rest',
+              enforcement: 'NETWORK_ENFORCEMENT_MODE_ENFORCE',
+              access: 'NETWORK_ACCESS_PRESET_READ_ONLY',
+            },
+          ],
+          binaries: [{ path: '/usr/bin/curl' }, { path: '/usr/bin/git' }],
+        },
+      });
+    });
+
+    it('changes a proposal the dialog cannot show whole as JSON', () => {
+      renderTab({
+        ...inbox,
+        chunks: [chunk({ id: 'r1', proposedRule: richRule })],
+      });
+      fireEvent.click(screen.getByTestId('change-chunk-r1'));
+      expect(screen.queryByTestId('add-host-host')).not.toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   });
 });

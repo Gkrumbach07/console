@@ -24,7 +24,7 @@ import {
   Title,
 } from '@patternfly/react-core';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useFeatureFlags } from '../api/auth';
 import type { ApiError } from '../api/client';
 import { useDraftPolicy, useSandboxPolicy } from '../api/policy';
@@ -82,6 +82,12 @@ const SandboxDetailPage: React.FC<SandboxDetailPageProps> = (props) => {
   const draftsQuery = useDraftPolicy(workspace, sandboxName);
   const providerExpiry = useProviderExpiry(workspace);
   const [searchParams, setSearchParams] = useSearchParams();
+  // A command for the terminal to start with, handed over by a page of the
+  // app (Run an agent). It is navigation state, never a URL parameter: a
+  // link cannot make the terminal run something.
+  const terminalCommand = (
+    useLocation().state as { terminalCommand?: string[] } | null
+  )?.terminalCommand;
   const resolvedTab = props.activeTab ?? (searchParams.get('tab') || 'details');
   const setActiveTab = (key: string | number) => {
     const tab = String(key);
@@ -473,6 +479,7 @@ const SandboxDetailPage: React.FC<SandboxDetailPageProps> = (props) => {
                   <SandboxTerminalTab
                     workspace={workspace}
                     sandboxName={sandboxName}
+                    initialCommand={terminalCommand}
                   />
                 )}
               </div>

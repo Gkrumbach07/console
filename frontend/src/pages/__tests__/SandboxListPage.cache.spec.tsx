@@ -36,10 +36,6 @@ jest.mock('../../app/AlertContext', () => ({
     addDanger: jest.fn(),
   })),
 }));
-jest.mock('../../components/CreateSandboxModal', () => ({
-  __esModule: true,
-  default: () => null,
-}));
 jest.mock('../../slots', () => ({ useSlots: () => ({}) }));
 
 const sandbox = (name: string): Sandbox => ({

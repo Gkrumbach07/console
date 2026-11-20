@@ -15,6 +15,13 @@ jest.mock('../../api/allWorkspaces', () => ({
 jest.mock('../../api/draftSummary', () => ({
   useAllWorkspacesDraftSummary: jest.fn(),
 }));
+// Get started asks whether the platform has a provider profile yet.
+let mockPlatformProfiles: unknown[] = [];
+jest.mock('../../api/providers', () => ({
+  PLATFORM_PROFILE_SCOPE: jest.requireActual('../../api/providers')
+    .PLATFORM_PROFILE_SCOPE,
+  useProviderProfiles: jest.fn(() => ({ data: mockPlatformProfiles })),
+}));
 jest.mock('../../api/auth', () => ({
   useFeatureFlags: () => ({ draftPolicy: true }),
 }));
@@ -251,27 +258,43 @@ describe('GatewayOverviewPage', () => {
     ).toBeInTheDocument();
     expect(started.getByTestId('get-started-provider-link')).toHaveAttribute(
       'href',
-      '/workspaces/default',
+      '/workspaces/default?tab=providers',
     );
     expect(started.getByTestId('get-started-sandbox-link')).toHaveAttribute(
       'href',
       '/workspaces/default',
     );
-    // The workspace step is done; adding a provider is the current one.
-    expect(
-      started
-        .getByTestId('get-started-workspace-link')
-        .closest('.pf-v6-c-progress-stepper__step'),
-    ).toHaveClass('pf-m-success');
-    expect(
-      started
-        .getByTestId('get-started-provider-link')
-        .closest('.pf-v6-c-progress-stepper__step'),
-    ).toHaveClass('pf-m-current');
+    // The workspace step is done. A gateway 0.1.x has no provider profiles
+    // until one is imported, and no provider can be created without one, so
+    // importing a profile is the current step.
+    const step = (testId: string) =>
+      started.getByTestId(testId).closest('.pf-v6-c-progress-stepper__step');
+    expect(step('get-started-workspace-link')).toHaveClass('pf-m-success');
+    expect(step('get-started-profile-link')).toHaveClass('pf-m-current');
+    expect(started.getByTestId('get-started-profile-link')).toHaveAttribute(
+      'href',
+      '/provider-profiles',
+    );
+    expect(step('get-started-provider-link')).not.toHaveClass('pf-m-current');
     // Nothing about an agent: there is none.
     expect(screen.getByTestId('gateway-get-started')).not.toHaveTextContent(
       /agent/i,
     );
+  });
+
+  it('moves on to adding a provider once the platform has a profile', () => {
+    healthy();
+    mockUseAllSandboxes.mockReturnValue(answered([]));
+    mockUseAllProviders.mockReturnValue(answered([]));
+    mockPlatformProfiles = [{ id: 'github', scope: 'platform' }];
+    renderPage();
+    mockPlatformProfiles = [];
+
+    const started = within(screen.getByTestId('gateway-get-started'));
+    const step = (testId: string) =>
+      started.getByTestId(testId).closest('.pf-v6-c-progress-stepper__step');
+    expect(step('get-started-profile-link')).toHaveClass('pf-m-success');
+    expect(step('get-started-provider-link')).toHaveClass('pf-m-current');
   });
 
   // Counts that are not known are not zeros.

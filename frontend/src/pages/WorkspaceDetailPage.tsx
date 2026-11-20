@@ -1,9 +1,9 @@
-import { useState } from 'react';
 import {
   Alert,
   Badge,
   Bullseye,
   Button,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -17,9 +17,10 @@ import {
   Tabs,
   Title,
 } from '@patternfly/react-core';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useFeatureFlags } from '../api/auth';
+import type { ApiError } from '../api/client';
 import { useProviders } from '../api/providers';
 import { useTemplates } from '../api/templates';
 import {
@@ -73,7 +74,14 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
     enabled: features.services,
   });
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<string | number>('sandboxes');
+  // The tab is in the URL (?tab=providers), like the sandbox page's, so that
+  // a link can open the workspace on the tab it is about.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'sandboxes';
+  const setActiveTab = (key: string | number) => {
+    const tab = String(key);
+    setSearchParams(tab === 'sandboxes' ? {} : { tab }, { replace: true });
+  };
 
   // A service endpoint is exposed and deleted on its sandbox's Services tab.
   const viewSandboxServices = (name: string) => {
@@ -99,6 +107,32 @@ const WorkspaceDetailPage: React.FC<WorkspaceDetailPageProps> = ({
   // in this component, and a refresh that did not get through must not throw
   // them away. It is reported above the details instead.
   const refreshFailed = isRefreshError(workspaceQuery);
+  // The gateway refuses a workspace to someone who is not its member, with
+  // an instruction for the CLI. Retrying cannot help; a platform admin can.
+  const notMember =
+    workspaceQuery.isError &&
+    !refreshFailed &&
+    (workspaceQuery.error as ApiError | null)?.status === 403;
+  if (notMember) {
+    return (
+      <PageSection>
+        <Alert
+          variant="warning"
+          title={`You're not a member of ${workspace}`}
+          data-testid="workspace-not-member"
+        >
+          <Content component="p">
+            A platform admin adds you on this workspace&apos;s Members tab, with
+            your subject ID. Copy it from the user menu (Copy my subject ID) and
+            send it to them.
+          </Content>
+          <Content component="small">
+            The gateway said: {(workspaceQuery.error as Error).message}
+          </Content>
+        </Alert>
+      </PageSection>
+    );
+  }
   if (workspaceQuery.isError && !refreshFailed) {
     return (
       <PageSection>

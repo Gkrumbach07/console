@@ -139,14 +139,25 @@ describe('SettingsPage', () => {
       row('proposal_approval_mode').getByText('manual'),
     ).toBeInTheDocument();
     expect(row('ocsf_schema_version').getByText('""')).toBeInTheDocument();
+    // A key upstream registers says what being unset means.
     expect(
-      row('agent_policy_proposals_enabled').getByText('—'),
-    ).toBeInTheDocument();
+      screen.getByTestId('setting-unset-agent_policy_proposals_enabled'),
+    ).toHaveTextContent(
+      'Not set (false: only denied connections make proposals)',
+    );
   });
 
   // What gateway 0.1.2 answers when nothing was ever set: its four registered
-  // keys, each without a value. The dashboard has no list of its own, so this
-  // is where the keys a gateway takes are learned from.
+  // keys, each without a value. The keys a gateway takes are learned from
+  // here; the dashboard only describes the ones upstream registers.
+  it('shows an unset key it does not know as the gateway sends it', () => {
+    renderPage({
+      settingsRevision: 1,
+      settings: [{ key: 'some_future_key' }],
+    });
+    expect(row('some_future_key').getByText('—')).toBeInTheDocument();
+  });
+
   it('lists the keys the gateway knows when none of them is set', () => {
     renderPage({
       settingsRevision: 28,
@@ -164,7 +175,10 @@ describe('SettingsPage', () => {
       'ocsf_schema_version',
       'proposal_approval_mode',
     ]) {
-      expect(row(key).getByText('—')).toBeInTheDocument();
+      expect(screen.getByTestId(`setting-unset-${key}`)).toHaveTextContent(
+        /^Not set \(/,
+      );
+      expect(screen.getByTestId(`setting-description-${key}`)).toBeVisible();
       expect(screen.getByTestId(`edit-${key}`)).toBeInTheDocument();
     }
     expect(

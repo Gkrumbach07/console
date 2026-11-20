@@ -20,18 +20,35 @@ export type PolicyTemplate = {
   id: string;
   name: string;
   description: string;
+  // What an agent in a sandbox of this policy will find blocked, said before
+  // it finds out from a denied connection.
+  blocks: string;
   policy: SandboxPolicy;
 };
 
-const basePolicy: Pick<
+// The filesystem of upstream's restrictive default (`restrictive_default_policy`
+// in openshell-policy 0.1.6), plus /app. The gateway adds /dev/null,
+// /dev/urandom and /var/log to a policy only when it has network rules, so a
+// policy without them breaks `git` and every `> /dev/null` in a sandbox with
+// no network rules of its own.
+export const basePolicy: Pick<
   SandboxPolicy,
   'version' | 'filesystem' | 'landlock' | 'process'
 > = {
   version: 1,
   filesystem: {
     includeWorkdir: true,
-    readOnly: ['/usr', '/lib', '/proc', '/app', '/etc'],
-    readWrite: ['/sandbox', '/tmp'],
+    readOnly: [
+      '/bin',
+      '/usr',
+      '/lib',
+      '/proc',
+      '/dev/urandom',
+      '/app',
+      '/etc',
+      '/var/log',
+    ],
+    readWrite: ['/sandbox', '/tmp', '/dev/null'],
   },
   landlock: { compatibility: 'best_effort' },
   process: { runAsUser: 'sandbox', runAsGroup: 'sandbox' },
@@ -40,9 +57,11 @@ const basePolicy: Pick<
 export const policyTemplates: PolicyTemplate[] = [
   {
     id: 'locked-down',
-    name: 'Locked down (no network)',
+    name: 'Locked down: attached providers only',
     description:
-      'Standard filesystem sandbox with no network egress. Good default for untrusted code.',
+      'No network rules of its own. The sandbox reaches the endpoints of the providers you attach and nothing else. A good default for untrusted code.',
+    blocks:
+      'Blocks package installs (pip, npm), git clone and every other host until you approve a proposal for it.',
     policy: {
       ...basePolicy,
       networkPolicies: {},
@@ -51,7 +70,10 @@ export const policyTemplates: PolicyTemplate[] = [
   {
     id: 'anthropic-agent',
     name: 'Anthropic API agent',
-    description: 'Enforced egress to the Anthropic API only (read-write).',
+    description:
+      'Lets Claude Code, node and curl reach api.anthropic.com. Attaching an Anthropic provider does the same and also gives the sandbox its key.',
+    blocks:
+      'Blocks package installs, git and every other host. Other programs cannot reach the API either: the gateway matches the calling binary.',
     policy: {
       ...basePolicy,
       networkPolicies: {
@@ -65,6 +87,14 @@ export const policyTemplates: PolicyTemplate[] = [
               access: 'NETWORK_ACCESS_PRESET_READ_WRITE',
             },
           ],
+          // Gateway 0.1.6 requires a binary match (require_binary_identity),
+          // so a rule without binaries admits no process at all.
+          binaries: [
+            { path: '/usr/local/bin/claude' },
+            { path: '/usr/bin/claude' },
+            { path: '/usr/bin/node' },
+            { path: '/usr/bin/curl' },
+          ],
         },
       },
     },
@@ -73,7 +103,12 @@ export const policyTemplates: PolicyTemplate[] = [
     id: 'github-readonly',
     name: 'GitHub read-only',
     description:
-      'Enforced read-only access to the GitHub API, git binary allowed.',
+      'git and gh can clone, fetch and read the GitHub API. Push stays denied.',
+    blocks:
+      'Blocks git push, package installs and every other host. Private repositories also need a GitHub provider for the token.',
+    // The rules of upstream's providers/github.yaml: git smart HTTP needs a
+    // POST to git-upload-pack for clone and fetch, which the read-only access
+    // preset (GET, HEAD, OPTIONS) refuses.
     policy: {
       ...basePolicy,
       networkPolicies: {
@@ -91,10 +126,20 @@ export const policyTemplates: PolicyTemplate[] = [
               port: 443,
               protocol: 'rest',
               enforcement: 'NETWORK_ENFORCEMENT_MODE_ENFORCE',
-              access: 'NETWORK_ACCESS_PRESET_READ_ONLY',
+              rules: [
+                { allow: { method: 'GET', path: '**' } },
+                { allow: { method: 'HEAD', path: '**' } },
+                { allow: { method: 'OPTIONS', path: '**' } },
+                { allow: { method: 'POST', path: '/**/git-upload-pack' } },
+              ],
             },
           ],
-          binaries: [{ path: '/usr/bin/git' }],
+          binaries: [
+            { path: '/usr/bin/git' },
+            { path: '/usr/local/bin/git' },
+            { path: '/usr/bin/gh' },
+            { path: '/usr/local/bin/gh' },
+          ],
         },
       },
     },

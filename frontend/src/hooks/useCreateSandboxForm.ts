@@ -1,15 +1,29 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { COMMUNITY_REGISTRY } from '../constants';
 import { usePolicyText } from './usePolicyText';
 import { useSandboxLaunchOptions } from './useSandboxLaunchOptions';
-import { policyTemplates } from '../components/policy/policyTemplates';
+import {
+  freeRuleName,
+  initialPolicy,
+  pathsOf,
+  policyExtras,
+  rulesOf,
+  withPaths,
+  withRules,
+  type PathAccess,
+} from '../components/policy/policyBuilder';
+import { policyToText } from '../utils/policyFile';
 import {
   parseDriverConfig,
   rowsToRecord,
   type KeyValueRow,
 } from '../utils/sandboxOptions';
-import type { CreateSandboxRequest } from '../types';
+import type {
+  CreateSandboxRequest,
+  NetworkPolicyRule,
+  SandboxPolicy,
+} from '../types';
 
 export const resolveImage = (input: string): string => {
   const trimmed = input.trim();
@@ -19,12 +33,13 @@ export const resolveImage = (input: string): string => {
   return trimmed;
 };
 
-// Why a form whose policy was emptied cannot be sent. A policy is the one
+// Why a form whose policy file was emptied cannot be sent. A policy is the one
 // thing a sandbox cannot be created without, and an empty text, or one that
 // is only space, is not one.
 export const POLICY_REQUIRED =
-  'A policy is required. Choose a preset, paste a policy, or load one from a file.';
+  'A policy is required. Write one in the policy file, or load one from a file.';
 
+// Labels written as `team=ml, kind=agent`, as the template forms take them.
 export const parseLabels = (raw: string): Record<string, string> | null => {
   const labels: Record<string, string> = {};
   const trimmed = raw.trim();
@@ -41,29 +56,99 @@ export const parseLabels = (raw: string): Record<string, string> | null => {
   return labels;
 };
 
+// The policy as the file shows it to start with: the YAML a person would
+// pass to `openshell sandbox create --policy`.
+const initialPolicyText = (): string =>
+  policyToText(initialPolicy(), 'yaml').text ?? '';
+
 export const useCreateSandboxForm = () => {
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
-  const [labelsText, setLabelsText] = useState('');
   const [gpuCount, setGpuCount] = useState('');
   const [cpu, setCpu] = useState('');
   const [memory, setMemory] = useState('');
-  const [templateId, setTemplateId] = useState(policyTemplates[0].id);
-  const [policyText, setPolicyText] = useState(
-    JSON.stringify(policyTemplates[0].policy, null, 2),
-  );
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
-  const [isPolicyExpanded, setPolicyExpanded] = useState(false);
-  // The fields the gateway fills in for a form that leaves them alone: a
-  // generated name, no labels, and the compute driver's own resource
-  // defaults. They start folded away so that the form opens on the three
-  // things a sandbox is actually made of — its policy, its image and its
-  // providers.
-  const [isGeneratedExpanded, setGeneratedExpanded] = useState(false);
 
-  // Advanced options. All of them are optional, and a form that leaves them
+  // The policy is held once, as the text of its file. The form's fields are
+  // views of parts of it: each reads its part from the policy the text reads
+  // as, and writes the policy back as text with that part changed. A field
+  // the form does not have is never touched, so an edit made in the file
+  // stays whatever the form does afterwards, and the form and the file can
+  // never disagree.
+  const [policyText, setPolicyText] = useState(initialPolicyText);
+  const reading = usePolicyText(policyText);
+  // While the file does not read as a policy (it is being typed), the form
+  // shows the last policy it did read as, and cannot change it.
+  const lastPolicy = useRef<SandboxPolicy>(reading.parsed ?? initialPolicy());
+  if (reading.parsed) {
+    lastPolicy.current = reading.parsed;
+  }
+  const policy = reading.parsed ?? lastPolicy.current;
+  const policyError = policyText.trim() ? reading.error : POLICY_REQUIRED;
+  const canEditPolicy = reading.parsed !== null;
+  const policyFormat = reading.format;
+
+  const editPolicy = useCallback(
+    (change: (current: SandboxPolicy) => SandboxPolicy) => {
+      if (!reading.parsed) return;
+      const next = change(reading.parsed);
+      // In the format the file is in. A policy the YAML file cannot say
+      // (the gateway's own marks on an endpoint) is written as JSON.
+      const text =
+        policyToText(next, policyFormat).text ??
+        policyToText(next, 'json').text;
+      if (text !== undefined) setPolicyText(text);
+    },
+    [reading.parsed, policyFormat],
+  );
+
+  const rules = rulesOf(policy);
+  const readOnly = pathsOf(policy, 'readOnly');
+  const readWrite = pathsOf(policy, 'readWrite');
+  const extras = useMemo(() => policyExtras(policy), [policy]);
+
+  const addRule = useCallback(
+    (ruleName: string, rule: NetworkPolicyRule) =>
+      editPolicy((current) => {
+        const existing = rulesOf(current);
+        return withRules(current, {
+          ...existing,
+          [freeRuleName(existing, ruleName)]: rule,
+        });
+      }),
+    [editPolicy],
+  );
+
+  const replaceRule = useCallback(
+    (ruleName: string, rule: NetworkPolicyRule) =>
+      editPolicy((current) =>
+        withRules(current, { ...rulesOf(current), [ruleName]: rule }),
+      ),
+    [editPolicy],
+  );
+
+  const removeRule = useCallback(
+    (ruleName: string) =>
+      editPolicy((current) => {
+        const next = { ...rulesOf(current) };
+        delete next[ruleName];
+        return withRules(current, next);
+      }),
+    [editPolicy],
+  );
+
+  const setPaths = useCallback(
+    (access: PathAccess, paths: string[]) =>
+      editPolicy((current) => withPaths(current, access, paths)),
+    [editPolicy],
+  );
+
+  const resetPolicy = useCallback(() => setPolicyText(initialPolicyText()), []);
+
+  // Run and resources. All of them are optional, and a form that leaves them
   // alone sends the request it always sent.
   const [envRows, setEnvRows] = useState<KeyValueRow[]>([]);
+  const [labelRows, setLabelRows] = useState<KeyValueRow[]>([]);
   const [annotationRows, setAnnotationRows] = useState<KeyValueRow[]>([]);
   const [logLevel, setLogLevel] = useState('');
   const [runtimeClassName, setRuntimeClassName] = useState('');
@@ -71,12 +156,6 @@ export const useCreateSandboxForm = () => {
   const [isAdvancedExpanded, setAdvancedExpanded] = useState(false);
   const launch = useSandboxLaunchOptions();
 
-  // The policy is read from whatever it was given as: the JSON of a preset,
-  // or a policy file, YAML or JSON, pasted or loaded over it.
-  const { error: readError, parsed: parsedPolicy } = usePolicyText(policyText);
-  const policyError = policyText.trim() ? readError : POLICY_REQUIRED;
-
-  const labels = useMemo(() => parseLabels(labelsText), [labelsText]);
   const gpuInvalid = gpuCount !== '' && !/^[0-9]+$/.test(gpuCount);
   const resolvedImage = image ? resolveImage(image) : '';
   const isResolved = image && resolvedImage !== image.trim();
@@ -84,6 +163,10 @@ export const useCreateSandboxForm = () => {
   const { record: environment, error: envError } = useMemo(
     () => rowsToRecord(envRows),
     [envRows],
+  );
+  const { record: labels, error: labelsError } = useMemo(
+    () => rowsToRecord(labelRows),
+    [labelRows],
   );
   const { record: annotations, error: annotationsError } = useMemo(
     () => rowsToRecord(annotationRows),
@@ -93,41 +176,26 @@ export const useCreateSandboxForm = () => {
     () => parseDriverConfig(driverConfigText),
     [driverConfigText],
   );
-  // The section opens by itself around a field that needs correcting.
-  const hasAdvancedError =
-    Boolean(envError || annotationsError || driverConfigError) ||
-    !launch.isValid;
 
-  // The folded section opens by itself around a field that needs
-  // correcting, so that a value typed into it cannot block the form from
-  // somewhere nobody can see.
-  const hasGeneratedError = labels === null || gpuInvalid;
-
-  const activeTemplate = policyTemplates.find(
-    (candidate) => candidate.id === templateId,
+  // Which step holds a field to correct, so the wizard can mark it and the
+  // review can say where to go.
+  const hasRunError = Boolean(envError) || !launch.isValid;
+  const hasAdvancedError = Boolean(
+    labelsError || annotationsError || driverConfigError,
   );
+  const hasResourcesError = gpuInvalid || hasAdvancedError;
 
   // The image is not required: without one the gateway runs its default.
   const isValid =
-    !policyError &&
-    !!parsedPolicy &&
-    labels !== null &&
-    !gpuInvalid &&
-    !hasAdvancedError;
-
-  const applyTemplate = useCallback((id: string) => {
-    setTemplateId(id);
-    const template = policyTemplates.find((candidate) => candidate.id === id);
-    if (template) {
-      setPolicyText(JSON.stringify(template.policy, null, 2));
-    }
-  }, []);
+    !policyError && canEditPolicy && !hasRunError && !hasResourcesError;
 
   const toggleProvider = useCallback(
     (providerName: string, checked: boolean) => {
       setSelectedProviders((current) =>
         checked
-          ? [...current, providerName]
+          ? current.includes(providerName)
+            ? current
+            : [...current, providerName]
           : current.filter((item) => item !== providerName),
       );
     },
@@ -138,26 +206,25 @@ export const useCreateSandboxForm = () => {
   const reset = useCallback(() => {
     setName('');
     setImage('');
-    setLabelsText('');
     setGpuCount('');
     setCpu('');
     setMemory('');
     setSelectedProviders([]);
-    setPolicyExpanded(false);
-    setGeneratedExpanded(false);
     setEnvRows([]);
+    setLabelRows([]);
     setAnnotationRows([]);
     setLogLevel('');
     setRuntimeClassName('');
     setDriverConfigText('');
     setAdvancedExpanded(false);
     resetLaunch();
-    applyTemplate(policyTemplates[0].id);
-  }, [applyTemplate, resetLaunch]);
+    resetPolicy();
+  }, [resetPolicy, resetLaunch]);
 
   const launchPayload = launch.payload;
+  const parsedPolicy = reading.parsed;
   const buildPayload = useCallback((): CreateSandboxRequest | null => {
-    if (!isValid || !parsedPolicy || labels === null) {
+    if (!isValid || !parsedPolicy) {
       return null;
     }
     return {
@@ -201,38 +268,44 @@ export const useCreateSandboxForm = () => {
     setName,
     image,
     setImage,
-    labelsText,
-    setLabelsText,
+    resolvedImage,
+    isResolved,
+    selectedProviders,
+    setSelectedProviders,
+    toggleProvider,
+    // The policy, its file and the views of it.
+    policy,
+    policyText,
+    setPolicyText,
+    policyReading: reading,
+    policyError,
+    canEditPolicy,
+    extras,
+    rules,
+    addRule,
+    replaceRule,
+    removeRule,
+    readOnly,
+    readWrite,
+    setPaths,
+    resetPolicy,
+    // Run.
+    launch,
+    envRows,
+    setEnvRows,
+    envError,
+    hasRunError,
+    // Resources.
     gpuCount,
     setGpuCount,
+    gpuInvalid,
     cpu,
     setCpu,
     memory,
     setMemory,
-    templateId,
-    policyText,
-    setPolicyText,
-    selectedProviders,
-    isPolicyExpanded,
-    setPolicyExpanded,
-    isGeneratedExpanded,
-    setGeneratedExpanded,
-    hasGeneratedError,
-    policyError,
-    parsedPolicy,
-    labels,
-    gpuInvalid,
-    resolvedImage,
-    isResolved,
-    activeTemplate,
-    isValid,
-    applyTemplate,
-    toggleProvider,
-    reset,
-    buildPayload,
-    envRows,
-    setEnvRows,
-    envError,
+    labelRows,
+    setLabelRows,
+    labelsError,
     annotationRows,
     setAnnotationRows,
     annotationsError,
@@ -246,6 +319,11 @@ export const useCreateSandboxForm = () => {
     isAdvancedExpanded,
     setAdvancedExpanded,
     hasAdvancedError,
-    launch,
+    hasResourcesError,
+    isValid,
+    reset,
+    buildPayload,
   };
 };
+
+export type CreateSandboxForm = ReturnType<typeof useCreateSandboxForm>;

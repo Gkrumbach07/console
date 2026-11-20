@@ -133,10 +133,14 @@ const MemberListPage: React.FC<MemberListPageProps> = ({ workspace }) => {
                 return (
                   <Tr key={member.principalSubject}>
                     <Td dataLabel="Subject">
-                      {isCurrentUser && currentUser?.displayName ? (
+                      {isCurrentUser ? (
                         <>
-                          {currentUser.displayName}{' '}
-                          <Label isCompact color="blue">
+                          {currentUser?.displayName || member.principalSubject}{' '}
+                          <Label
+                            isCompact
+                            color="blue"
+                            data-testid="member-you"
+                          >
                             you
                           </Label>
                         </>

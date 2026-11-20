@@ -8,12 +8,12 @@ import {
 } from '@testing-library/react';
 
 import CreateSandboxFromTemplateModal from '../CreateSandboxFromTemplateModal';
-import CreateSandboxModal from '../CreateSandboxModal';
 
 // A create that is in flight. What follows one that succeeds, the approval
 // mode, is written from the form: closing the form while the request is out
 // let go of it, and the sandbox was then created in manual mode with nothing
-// said. These drive the real form state through each modal.
+// said. These drive the real form state through the modal. The create page
+// has the same guard (CreateSandboxPage.spec.tsx).
 
 const mockCreate = jest.fn();
 const mockCreateReset = jest.fn();
@@ -75,17 +75,6 @@ const mockPut = put as jest.Mock;
 const onClose = jest.fn();
 
 const FORMS = [
-  {
-    form: 'Create sandbox',
-    approvalMode: 'sandbox-approval-mode',
-    submit: 'create-sandbox-submit',
-    cancel: 'create-sandbox-cancel',
-    mutate: mockCreate,
-    reset: mockCreateReset,
-    element: () => (
-      <CreateSandboxModal workspace="team-a" isOpen onClose={onClose} />
-    ),
-  },
   {
     form: 'Create sandbox from template',
     approvalMode: 'from-template-approval-mode',

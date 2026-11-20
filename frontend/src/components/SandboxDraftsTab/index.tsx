@@ -31,7 +31,10 @@ import { useWorkspaceRole } from '../../api/rbac';
 import { useI18n } from '../../i18n';
 import { formatTimestamp } from '../../utils/formatters';
 import RefreshErrorAlert, { isRefreshError } from '../RefreshErrorAlert';
-import DraftChunkRow from './DraftChunkRow';
+import AddHostModal from '../policy/AddHostModal';
+import AllowTracker, { type AllowedChange } from './AllowTracker';
+import DraftChunkRow, { draftColumns } from './DraftChunkRow';
+import { proposalHeadline } from './proposalWords';
 import DraftHistorySection from './DraftHistorySection';
 import EditDraftModal from './EditDraftModal';
 import { useDraftActions } from './useDraftActions';
@@ -68,6 +71,8 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
   const [rejectReason, setRejectReason] = useState('');
   const [includeFlagged, setIncludeFlagged] = useState(false);
   const [editingChunk, setEditingChunk] = useState<PolicyChunk | null>(null);
+  const [changingChunk, setChangingChunk] = useState<PolicyChunk | null>(null);
+  const [allowed, setAllowed] = useState<AllowedChange | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [bulkResult, setBulkResult] = useState<ApproveAllResult | null>(null);
 
@@ -129,7 +134,7 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
 
   const chunks = drafts.data?.chunks ?? [];
   const approvals = pendingApprovals(inbox.data?.chunks ?? []);
-  const columns = isWorkspaceAdmin ? 7 : 6;
+  const pendingCount = approvals.length;
   // What the toggle says while it is shut, which is the one of the four the
   // gateway is being asked for.
   const statusLabel = t(
@@ -185,6 +190,30 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
         <StackItem>
           <Alert variant="danger" isInline title="Draft action failed">
             {(actions.mutationError as Error).message}
+          </Alert>
+        </StackItem>
+      )}
+      {allowed && (
+        <StackItem>
+          <AllowTracker
+            key={allowed.version}
+            workspace={workspace}
+            sandboxName={sandboxName}
+            change={allowed}
+            onClose={() => setAllowed(null)}
+          />
+        </StackItem>
+      )}
+      {!isWorkspaceAdmin && pendingCount > 0 && (
+        <StackItem>
+          <Alert
+            variant="info"
+            isInline
+            title="A workspace admin decides these"
+            data-testid="drafts-ask-admin"
+          >
+            You can see what this sandbox was blocked from, but only a workspace
+            admin of {workspace} can allow it. Ask one to look at this tab.
           </Alert>
         </StackItem>
       )}
@@ -356,7 +385,7 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
           <Content component="p" data-testid="draft-empty">
             {statusFilter
               ? `No ${statusFilter} proposals.`
-              : 'No policy proposals. Proposals appear here when the sandbox observes denied network activity (or an in-sandbox agent submits one).'}
+              : 'Nothing has been blocked. When a program in the sandbox tries to reach a host its policy does not allow, the request is blocked and shows up here to allow or reject.'}
           </Content>
         </StackItem>
       ) : (
@@ -369,12 +398,12 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
             <Thead>
               <Tr>
                 <Th screenReaderText="Expand" />
-                <Th>Rule</Th>
+                <Th>Blocked request</Th>
                 <Th>Status</Th>
-                <Th>Confidence</Th>
-                <Th>Denied</Th>
-                <Th>Proposed</Th>
-                {columns === 7 && <Th screenReaderText="Actions" />}
+                <Th>Last seen</Th>
+                {draftColumns(isWorkspaceAdmin) === 5 && (
+                  <Th screenReaderText="Actions" />
+                )}
               </Tr>
             </Thead>
             {chunks.map((chunk, rowIndex) => (
@@ -387,6 +416,18 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
                 isGlobalPolicy={isGlobalPolicy}
                 onToggle={() => toggleExpand(chunk.id)}
                 onEdit={setEditingChunk}
+                onChange={setChangingChunk}
+                onAllowed={(allowedChunk, result) => {
+                  const words = proposalHeadline(allowedChunk);
+                  setAllowed({
+                    version: result.version,
+                    what:
+                      words.program && words.target
+                        ? `${words.program} → ${words.target}`
+                        : allowedChunk.ruleName || allowedChunk.id,
+                    sinceMs: Date.now(),
+                  });
+                }}
                 actions={actions}
                 rejecting={rejecting}
                 rejectReason={rejectReason}
@@ -401,6 +442,23 @@ const SandboxDraftsTab: React.FC<SandboxDraftsTabProps> = ({
       <StackItem>
         <DraftHistorySection workspace={workspace} sandboxName={sandboxName} />
       </StackItem>
+
+      {changingChunk && (
+        <AddHostModal
+          key={changingChunk.id}
+          isOpen
+          title="Change what is allowed"
+          submitLabel="Save"
+          initialRule={changingChunk.proposedRule}
+          onClose={() => setChangingChunk(null)}
+          onAdd={(_name, rule) =>
+            actions.edit.mutate({
+              chunkId: changingChunk.id,
+              proposedRule: rule,
+            })
+          }
+        />
+      )}
 
       <EditDraftModal
         chunk={editingChunk}

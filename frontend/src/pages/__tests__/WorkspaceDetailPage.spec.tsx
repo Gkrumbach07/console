@@ -226,8 +226,9 @@ describe('WorkspaceDetailPage', () => {
     fireEvent.click(screen.getByTestId('service-sandbox-link-team-a-agent'));
 
     expect(onViewSandbox).toHaveBeenCalledWith('agent', 'services');
+    // Still on the workspace, on the tab it was on: the tab is in the URL.
     expect(screen.getByTestId('location')).toHaveTextContent(
-      /^\/workspaces\/team-a$/,
+      /^\/workspaces\/team-a\?tab=services$/,
     );
   });
 

@@ -118,11 +118,6 @@ jest.mock('../../hooks/useBulkDelete', () => ({
   })),
 }));
 
-jest.mock('../../components/CreateSandboxModal', () => ({
-  __esModule: true,
-  default: () => null,
-}));
-
 jest.mock('../../slots', () => ({ useSlots: () => ({}) }));
 
 import { useWorkspaceDraftSummary } from '../../api/draftSummary';

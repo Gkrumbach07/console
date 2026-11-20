@@ -78,11 +78,15 @@ const TERM_COLOURS: Record<
 type SandboxTerminalTabProps = {
   workspace: string;
   sandboxName: string;
+  // What the first session runs instead of the default shell, one argument
+  // to an entry. It is shown in the options, where it can be changed.
+  initialCommand?: string[];
 };
 
 const SandboxTerminalTab: React.FC<SandboxTerminalTabProps> = ({
   workspace,
   sandboxName,
+  initialCommand,
 }) => {
   const termRef = useRef<HTMLDivElement>(null);
   // The terminal of the session that is open, so that a theme toggle can
@@ -101,12 +105,21 @@ const SandboxTerminalTab: React.FC<SandboxTerminalTabProps> = ({
 
   // The options form. They apply to the next session; the one that is open
   // keeps what it started with (startRef).
-  const [options, setOptions] = useState<TerminalSessionOptions>(
-    DEFAULT_TERMINAL_SESSION_OPTIONS,
+  const [options, setOptions] = useState<TerminalSessionOptions>(() =>
+    initialCommand?.length
+      ? {
+          ...DEFAULT_TERMINAL_SESSION_OPTIONS,
+          commandText: initialCommand.join('\n'),
+        }
+      : DEFAULT_TERMINAL_SESSION_OPTIONS,
   );
   const [optionsExpanded, setOptionsExpanded] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
-  const startRef = useRef<TerminalStartMessage>({ type: 'start' });
+  const startRef = useRef<TerminalStartMessage>(
+    initialCommand?.length
+      ? { type: 'start', command: initialCommand }
+      : { type: 'start' },
+  );
 
   const disconnect = () => {
     sessionCleanupRef.current?.();

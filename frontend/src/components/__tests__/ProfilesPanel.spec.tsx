@@ -10,6 +10,11 @@ const mockDownload = jest.fn();
 let mockProfiles: ProviderProfile[] = [];
 const mockUseProviderProfiles = jest.fn();
 
+// The link to upstream's example profiles names the gateway's release.
+jest.mock('../../api/gateway', () => ({
+  useGatewayCompatibility: jest.fn(() => ({ data: undefined })),
+}));
+
 jest.mock('../../api/providers', () => ({
   PLATFORM_PROFILE_SCOPE: '@platform',
   useProviderProfiles: (scope: string) => mockUseProviderProfiles(scope),

@@ -148,9 +148,11 @@ const GlobalPolicyPage: React.FC = () => {
           Global policy
         </Title>
         <Content component="p">
-          A gateway-global policy applies to all sandboxes in full (no merge
-          with per-sandbox policies). This is the platform ceiling mechanism —
-          Platform Admin only.
+          A global policy replaces the policy of every sandbox on the gateway
+          while it is set. It is not merged with them and not a limit on them:
+          each sandbox enforces exactly the global policy, so the endpoints its
+          providers add and the proposals approved for it stop applying until
+          the global policy is deleted.
         </Content>
       </PageSection>
       <PageSection>
@@ -239,7 +241,7 @@ const GlobalPolicyPage: React.FC = () => {
       </PageSection>
       <ConfirmDeleteModal
         title="Delete global policy?"
-        body="Deleting the global policy restores sandbox-level policy control. Each sandbox will be governed by its own policy instead of the gateway-wide ceiling."
+        body="Deleting the global policy restores sandbox-level policy control. Each sandbox will be governed by its own policy again, with its providers' endpoints and approved proposals."
         isOpen={isDeleteOpen}
         isDeleting={deleteGlobalPolicy.isPending}
         error={
@@ -265,7 +267,7 @@ const GlobalPolicyPage: React.FC = () => {
       >
         <ModalHeader
           title="Set global policy"
-          description="Applies to ALL sandboxes immediately, replacing their effective policy."
+          description="Applies to every sandbox immediately, in place of its own policy. Providers' endpoints and approved proposals stop applying while it is set: include what your agents need."
         />
         <ModalBody>
           {isSeedTemplate && (

@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 import ProviderFormModal from '../provider/ProviderFormModal';
 import type { Provider, ProviderProfile } from '../../types';
@@ -38,6 +39,15 @@ const mutation = (mutate: jest.Mock) => ({
   isError: false,
   error: null,
 });
+
+// The form says who can import a profile, by role.
+let mockRoles = { isPlatformAdmin: false, isWorkspaceAdmin: true };
+jest.mock('../../api/rbac', () => ({
+  useUserRole: jest.fn(() => ({ isPlatformAdmin: mockRoles.isPlatformAdmin })),
+  useWorkspaceRole: jest.fn(() => ({
+    isWorkspaceAdmin: mockRoles.isWorkspaceAdmin,
+  })),
+}));
 
 jest.mock('../../api/providers', () => ({
   useProviderProfiles: jest.fn(() => mockProfilesQuery),
@@ -84,13 +94,17 @@ const provider = (overrides: Partial<Provider> = {}): Provider => ({
 });
 
 const renderCreate = () =>
+  // In a router: with no profile to choose, the form links to where one is
+  // imported.
   render(
-    <ProviderFormModal
-      mode="create"
-      workspace="team-a"
-      isOpen
-      onClose={jest.fn()}
-    />,
+    <MemoryRouter>
+      <ProviderFormModal
+        mode="create"
+        workspace="team-a"
+        isOpen
+        onClose={jest.fn()}
+      />
+    </MemoryRouter>,
   );
 
 const renderEdit = (existing: Provider, refreshManagedKeys?: string[]) =>
@@ -119,12 +133,34 @@ describe('Add provider without a provider type to choose', () => {
     renderCreate();
 
     const notice = screen.getByTestId('create-provider-no-profiles');
-    expect(notice).toHaveTextContent('No provider profiles');
-    expect(notice).toHaveTextContent('Import');
-    expect(notice).toHaveTextContent('openshell provider profile import');
+    expect(notice).toHaveTextContent('Import a provider profile first');
+    expect(notice).toHaveTextContent(
+      'Import one, and it will be offered here as a type',
+    );
+    // A workspace admin is sent to where they can import one.
+    expect(
+      screen.getByTestId('create-provider-workspace-profiles-link'),
+    ).toHaveAttribute('href', '/workspaces/team-a?tab=profiles');
+    expect(
+      screen.queryByTestId('create-provider-platform-profiles-link'),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId('create-provider-submit')).toBeDisabled();
     expect(
       screen.queryByTestId('create-provider-profiles-error'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('tells someone who cannot import a profile who can', () => {
+    mockProfilesQuery = loaded([]);
+    mockRoles = { isPlatformAdmin: false, isWorkspaceAdmin: false };
+    renderCreate();
+    mockRoles = { isPlatformAdmin: false, isWorkspaceAdmin: true };
+
+    expect(screen.getByTestId('create-provider-no-profiles')).toHaveTextContent(
+      'Ask a workspace admin or a platform admin to import one',
+    );
+    expect(
+      screen.queryByTestId('create-provider-workspace-profiles-link'),
     ).not.toBeInTheDocument();
   });
 

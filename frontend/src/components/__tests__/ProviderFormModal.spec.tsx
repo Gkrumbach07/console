@@ -26,6 +26,15 @@ const mutation = (mutate: jest.Mock) => ({
   error: null,
 });
 
+// The form says who can import a profile, by role.
+const mockRoles = { isPlatformAdmin: false, isWorkspaceAdmin: true };
+jest.mock('../../api/rbac', () => ({
+  useUserRole: jest.fn(() => ({ isPlatformAdmin: mockRoles.isPlatformAdmin })),
+  useWorkspaceRole: jest.fn(() => ({
+    isWorkspaceAdmin: mockRoles.isWorkspaceAdmin,
+  })),
+}));
+
 jest.mock('../../api/providers', () => ({
   useProviderProfiles: jest.fn(() => ({
     data: mockProfiles,

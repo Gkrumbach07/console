@@ -5,11 +5,25 @@
       "version": 1,
       "filesystem": {
         "includeWorkdir": true,
-        "readOnly": ["/usr", "/lib", "/proc", "/app", "/etc"],
-        "readWrite": ["/sandbox", "/tmp"]
+        "readOnly": [
+          "/bin",
+          "/usr",
+          "/lib",
+          "/proc",
+          "/dev/urandom",
+          "/app",
+          "/etc",
+          "/var/log"
+        ],
+        "readWrite": ["/sandbox", "/tmp", "/dev/null"]
       },
-      "landlock": { "compatibility": "best_effort" },
-      "process": { "runAsUser": "sandbox", "runAsGroup": "sandbox" },
+      "landlock": {
+        "compatibility": "best_effort"
+      },
+      "process": {
+        "runAsUser": "sandbox",
+        "runAsGroup": "sandbox"
+      },
       "networkPolicies": {}
     }
   },
@@ -19,11 +33,25 @@
       "version": 1,
       "filesystem": {
         "includeWorkdir": true,
-        "readOnly": ["/usr", "/lib", "/proc", "/app", "/etc"],
-        "readWrite": ["/sandbox", "/tmp"]
+        "readOnly": [
+          "/bin",
+          "/usr",
+          "/lib",
+          "/proc",
+          "/dev/urandom",
+          "/app",
+          "/etc",
+          "/var/log"
+        ],
+        "readWrite": ["/sandbox", "/tmp", "/dev/null"]
       },
-      "landlock": { "compatibility": "best_effort" },
-      "process": { "runAsUser": "sandbox", "runAsGroup": "sandbox" },
+      "landlock": {
+        "compatibility": "best_effort"
+      },
+      "process": {
+        "runAsUser": "sandbox",
+        "runAsGroup": "sandbox"
+      },
       "networkPolicies": {
         "anthropic": {
           "endpoints": [
@@ -33,6 +61,20 @@
               "protocol": "rest",
               "enforcement": "NETWORK_ENFORCEMENT_MODE_ENFORCE",
               "access": "NETWORK_ACCESS_PRESET_READ_WRITE"
+            }
+          ],
+          "binaries": [
+            {
+              "path": "/usr/local/bin/claude"
+            },
+            {
+              "path": "/usr/bin/claude"
+            },
+            {
+              "path": "/usr/bin/node"
+            },
+            {
+              "path": "/usr/bin/curl"
             }
           ]
         }
@@ -45,11 +87,25 @@
       "version": 1,
       "filesystem": {
         "includeWorkdir": true,
-        "readOnly": ["/usr", "/lib", "/proc", "/app", "/etc"],
-        "readWrite": ["/sandbox", "/tmp"]
+        "readOnly": [
+          "/bin",
+          "/usr",
+          "/lib",
+          "/proc",
+          "/dev/urandom",
+          "/app",
+          "/etc",
+          "/var/log"
+        ],
+        "readWrite": ["/sandbox", "/tmp", "/dev/null"]
       },
-      "landlock": { "compatibility": "best_effort" },
-      "process": { "runAsUser": "sandbox", "runAsGroup": "sandbox" },
+      "landlock": {
+        "compatibility": "best_effort"
+      },
+      "process": {
+        "runAsUser": "sandbox",
+        "runAsGroup": "sandbox"
+      },
       "networkPolicies": {
         "github": {
           "endpoints": [
@@ -65,10 +121,48 @@
               "port": 443,
               "protocol": "rest",
               "enforcement": "NETWORK_ENFORCEMENT_MODE_ENFORCE",
-              "access": "NETWORK_ACCESS_PRESET_READ_ONLY"
+              "rules": [
+                {
+                  "allow": {
+                    "method": "GET",
+                    "path": "**"
+                  }
+                },
+                {
+                  "allow": {
+                    "method": "HEAD",
+                    "path": "**"
+                  }
+                },
+                {
+                  "allow": {
+                    "method": "OPTIONS",
+                    "path": "**"
+                  }
+                },
+                {
+                  "allow": {
+                    "method": "POST",
+                    "path": "/**/git-upload-pack"
+                  }
+                }
+              ]
             }
           ],
-          "binaries": [{ "path": "/usr/bin/git" }]
+          "binaries": [
+            {
+              "path": "/usr/bin/git"
+            },
+            {
+              "path": "/usr/local/bin/git"
+            },
+            {
+              "path": "/usr/bin/gh"
+            },
+            {
+              "path": "/usr/local/bin/gh"
+            }
+          ]
         }
       }
     }

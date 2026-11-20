@@ -1,8 +1,14 @@
 import {
   Breadcrumb,
   BreadcrumbItem,
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateBody,
+  EmptyStateFooter,
   PageBreadcrumb,
+  PageSection,
 } from '@patternfly/react-core';
+import { LockIcon } from '@patternfly/react-icons';
 import {
   Link,
   Navigate,
@@ -22,7 +28,9 @@ import SandboxDetailPage from '../pages/SandboxDetailPage';
 import ProviderDetailPage from '../pages/ProviderDetailPage';
 import ProviderProfilesPage from '../pages/ProviderProfilesPage';
 import GlobalPolicyPage from '../pages/GlobalPolicyPage';
+import CreateSandboxPage from '../pages/CreateSandboxPage';
 import ProposalsPage from '../pages/ProposalsPage';
+import RunAgentPage from '../pages/RunAgentPage';
 import SettingsPage from '../pages/SettingsPage';
 import { useUserRole } from '../api/rbac';
 import { useI18n } from '../i18n';
@@ -106,6 +114,51 @@ const SandboxDetailRoute: React.FC = () => {
   );
 };
 
+const CreateSandboxRoute: React.FC = () => {
+  const { workspace } = useParams<{ workspace: string }>();
+  const navigate = useNavigate();
+  if (!workspace) {
+    return <Navigate to="/workspaces" replace />;
+  }
+  return (
+    <>
+      <WorkspaceCrumbs workspace={workspace} leaf="Create sandbox" />
+      <CreateSandboxPage
+        workspace={workspace}
+        onCreated={(name) =>
+          navigate(`/workspaces/${workspace}/sandboxes/${name}`)
+        }
+        onCancel={() => navigate(`/workspaces/${workspace}`)}
+      />
+    </>
+  );
+};
+
+const RunAgentRoute: React.FC = () => {
+  const { workspace } = useParams<{ workspace: string }>();
+  const navigate = useNavigate();
+  if (!workspace) {
+    return <Navigate to="/workspaces" replace />;
+  }
+  return (
+    <>
+      <WorkspaceCrumbs workspace={workspace} leaf="Run an agent" />
+      <RunAgentPage
+        workspace={workspace}
+        // The agent's command travels in the navigation state, which a link
+        // from outside the app cannot set: opening a URL never runs a command.
+        onOpenSandbox={(name, terminalCommand) =>
+          navigate(
+            `/workspaces/${workspace}/sandboxes/${name}${terminalCommand ? '?tab=terminal' : ''}`,
+            terminalCommand ? { state: { terminalCommand } } : undefined,
+          )
+        }
+        onCancel={() => navigate(`/workspaces/${workspace}`)}
+      />
+    </>
+  );
+};
+
 const ProviderDetailRoute: React.FC = () => {
   const { workspace, provider } = useParams<{
     workspace: string;
@@ -127,8 +180,31 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   if (isLoading) {
     return null;
   }
+  // Said, not redirected: a link someone shared, or a page a standard user
+  // typed, otherwise lands on Workspaces with no word of why.
   if (!isPlatformAdmin) {
-    return <Navigate to="/workspaces" replace />;
+    return (
+      <PageSection>
+        <EmptyState
+          variant="lg"
+          titleText="This page needs a platform admin"
+          icon={LockIcon}
+          data-testid="admin-only-page"
+        >
+          <EmptyStateBody>
+            Gateway-wide pages are for platform admins. You can work with the
+            sandboxes, providers and members of the workspaces you belong to.
+          </EmptyStateBody>
+          <EmptyStateFooter>
+            <EmptyStateActions>
+              <Link to="/workspaces" data-testid="admin-only-workspaces-link">
+                Go to workspaces
+              </Link>
+            </EmptyStateActions>
+          </EmptyStateFooter>
+        </EmptyState>
+      </PageSection>
+    );
   }
   return <>{children}</>;
 };
@@ -204,6 +280,16 @@ const AuthenticatedRoutes: React.FC<{ sessionAlert?: React.ReactNode }> = ({
       <Route
         path="/workspaces/:workspace/sandboxes/:sandbox"
         element={<SandboxDetailRoute />}
+      />
+      {/* Not under sandboxes/: a sandbox may be named anything a DNS label
+          allows, "new" included. */}
+      <Route
+        path="/workspaces/:workspace/create-sandbox"
+        element={<CreateSandboxRoute />}
+      />
+      <Route
+        path="/workspaces/:workspace/run-agent"
+        element={<RunAgentRoute />}
       />
       <Route
         path="/workspaces/:workspace/providers/:provider"

@@ -87,11 +87,14 @@ export default {
   getStarted: {
     title: 'Get started',
     intro:
-      'Nothing has been created on this gateway yet. Three steps make a sandbox to work in.',
+      'Nothing has been created on this gateway yet. Four steps make a sandbox to work in.',
     ariaLabel: 'Getting started',
     workspace: 'Create a workspace',
     workspaceDetail:
       "A workspace holds a team's sandboxes, providers and members. The gateway starts with a workspace called default.",
+    profile: 'Import a provider profile',
+    profileDetail:
+      'A new gateway has no provider profiles, and a provider can only be created from one. A profile names the credentials, endpoints and programs of a provider type: import one of the examples OpenShell publishes.',
     provider: 'Add a provider',
     providerDetail:
       'A provider holds the credentials a sandbox uses to reach a model or a service. Its type comes from a provider profile.',

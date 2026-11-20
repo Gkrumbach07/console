@@ -18,6 +18,7 @@ import {
   Spinner,
   TextInput,
 } from '@patternfly/react-core';
+import { Link } from 'react-router-dom';
 
 import {
   useCreateProvider,
@@ -25,6 +26,7 @@ import {
   useProviders,
   useUpdateProvider,
 } from '../../api/providers';
+import { useUserRole, useWorkspaceRole } from '../../api/rbac';
 import { useAlerts } from '../../app/AlertContext';
 import { useSlots } from '../../slots';
 import KeyValueEditor from '../KeyValueEditor';
@@ -91,6 +93,8 @@ const ProviderForm: React.FC<ProviderFormModalProps> = ({
   ...modeProps
 }) => {
   const isEdit = modeProps.mode === 'edit';
+  const { isPlatformAdmin } = useUserRole();
+  const { isWorkspaceAdmin } = useWorkspaceRole(workspace);
   const existingProvider = isEdit ? modeProps.provider : undefined;
 
   const slots = useSlots();
@@ -378,15 +382,37 @@ const ProviderForm: React.FC<ProviderFormModalProps> = ({
               <Alert
                 variant="info"
                 isInline
-                title="No provider profiles"
+                title="Import a provider profile first"
                 data-testid="create-provider-no-profiles"
+                actionLinks={
+                  <>
+                    {isPlatformAdmin && (
+                      <Link
+                        to="/provider-profiles"
+                        onClick={close}
+                        data-testid="create-provider-platform-profiles-link"
+                      >
+                        Provider profiles (all workspaces)
+                      </Link>
+                    )}
+                    {isWorkspaceAdmin && (
+                      <Link
+                        to={`/workspaces/${workspace}?tab=profiles`}
+                        onClick={close}
+                        className="pf-v6-u-ml-md"
+                        data-testid="create-provider-workspace-profiles-link"
+                      >
+                        This workspace&apos;s profiles
+                      </Link>
+                    )}
+                  </>
+                }
               >
-                A provider is created from a provider profile, and this
-                workspace sees none. A gateway serves only the profiles that
-                were imported into it. Import one first, on the Profiles tab of
-                the workspace or with{' '}
-                <code>openshell provider profile import</code>, and it will be
-                offered here as a type.
+                A provider&apos;s type is a provider profile, and this workspace
+                sees none: a new gateway has no profiles until one is imported.
+                {isPlatformAdmin || isWorkspaceAdmin
+                  ? ' Import one, and it will be offered here as a type.'
+                  : ' Ask a workspace admin or a platform admin to import one.'}
               </Alert>
             )}
             {!isEdit && (

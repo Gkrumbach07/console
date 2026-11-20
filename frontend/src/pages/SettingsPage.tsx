@@ -45,6 +45,7 @@ import {
   settingTypeOf,
   type SettingType,
 } from '../utils/settings';
+import { KNOWN_SETTINGS } from '../utils/gatewaySettings';
 
 // A setting that is about to be written, waiting for the user to confirm it.
 // `from` is where it was entered, which is where a refusal is shown.
@@ -226,8 +227,9 @@ const SettingsPage: React.FC = () => {
           Settings
         </Title>
         <Content component="p">
-          Gateway configuration settings. Changes take effect immediately.
-          Platform Admin only.
+          Gateway-wide settings. A value set here applies to every sandbox and
+          wins over the same setting on a sandbox, which then cannot change it.
+          Changes take effect immediately.
         </Content>
       </PageSection>
       <PageSection>
@@ -267,8 +269,20 @@ const SettingsPage: React.FC = () => {
             <Tbody>
               {entries.map((entry) => (
                 <Tr key={entry.key}>
-                  <Td dataLabel="Key" className="pf-v6-u-font-family-monospace">
-                    {entry.key}
+                  <Td dataLabel="Key">
+                    <div className="pf-v6-u-font-family-monospace">
+                      {entry.key}
+                    </div>
+                    {KNOWN_SETTINGS[entry.key] && (
+                      <Content
+                        component="small"
+                        data-testid={`setting-description-${entry.key}`}
+                      >
+                        {KNOWN_SETTINGS[entry.key].description}
+                        {KNOWN_SETTINGS[entry.key].allowedValues &&
+                          ` Values: ${KNOWN_SETTINGS[entry.key].allowedValues?.join(', ')}.`}
+                      </Content>
+                    )}
                   </Td>
                   <Td
                     dataLabel="Value"
@@ -312,6 +326,14 @@ const SettingsPage: React.FC = () => {
                           </HelperText>
                         )}
                       </Form>
+                    ) : entry.value === undefined &&
+                      KNOWN_SETTINGS[entry.key] ? (
+                      <Content
+                        component="small"
+                        data-testid={`setting-unset-${entry.key}`}
+                      >
+                        Not set ({KNOWN_SETTINGS[entry.key].unsetMeans})
+                      </Content>
                     ) : (
                       formatSettingValue(entry.value)
                     )}

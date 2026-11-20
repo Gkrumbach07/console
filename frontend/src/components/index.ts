@@ -4,7 +4,6 @@ export { default as PhaseLabel } from './PhaseLabel';
 export { default as LabelsList } from './LabelsList';
 export { default as ConfirmDeleteModal } from './ConfirmDeleteModal';
 export { default as CreateWorkspaceModal } from './CreateWorkspaceModal';
-export { default as CreateSandboxModal } from './CreateSandboxModal';
 export { default as CreateTemplateModal } from './CreateTemplateModal';
 export { default as CreateSandboxFromTemplateModal } from './CreateSandboxFromTemplateModal';
 export { default as TemplatesTab } from './TemplatesTab';

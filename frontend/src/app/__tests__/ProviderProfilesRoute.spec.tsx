@@ -115,7 +115,8 @@ describe('the provider profiles page', () => {
     expect(
       screen.queryByTestId('page-provider-profiles'),
     ).not.toBeInTheDocument();
-    // Sent where every user may be, as from the other admin pages.
-    expect(screen.getByTestId('page-workspaces')).toBeInTheDocument();
+    // Told why, with the way to where every user may be, as on the other
+    // admin pages.
+    expect(screen.getByTestId('admin-only-page')).toBeInTheDocument();
   });
 });

@@ -427,6 +427,11 @@ const PolicyRuleEditor: React.FC<PolicyRuleEditorProps> = ({
       {!notFound && (policyView.data?.revisions ?? []).length > 0 && (
         <StackItem>
           <Title headingLevel="h3">Revision history</Title>
+          <Content component="small" data-testid="policy-revision-history-help">
+            Revision 1 is the policy the sandbox was created with. The gateway
+            writes revision 2 right after, with its baseline filesystem paths
+            added, so revision 1 shows as superseded without anyone changing it.
+          </Content>
           <PolicyRevisionTable
             revisions={policyView.data?.revisions ?? []}
             activeVersion={activeVersion}

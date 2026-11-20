@@ -6,6 +6,11 @@ import type { ImportProfileRequest } from '../../types';
 
 const mockImport = jest.fn();
 
+// The link to upstream's example profiles names the gateway's release.
+jest.mock('../../api/gateway', () => ({
+  useGatewayCompatibility: jest.fn(() => ({ data: undefined })),
+}));
+
 jest.mock('../../api/providers', () => ({
   useImportProviderProfiles: jest.fn(() => ({
     mutate: mockImport,
@@ -69,11 +74,15 @@ describe('CreateProfileModal environment variables', () => {
     type('cred-env-0', 'GITHUB_TOKEN, GH_TOKEN,GITHUB_PAT');
     fireEvent.click(screen.getByTestId('create-profile-submit'));
 
+    // Required and sent as a bearer token unless the form says otherwise,
+    // as every example profile upstream publishes has them.
     expect(submitted().credentials).toEqual([
       {
         name: 'api_token',
-        required: false,
+        required: true,
         envVars: ['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PAT'],
+        authStyle: 'bearer',
+        headerName: 'authorization',
       },
     ]);
   });
@@ -99,11 +108,12 @@ describe('CreateProfileModal environment variables', () => {
     fillRequired();
     fireEvent.click(screen.getByTestId('cred-add'));
     type('cred-name-0', 'subject_token');
+    type('cred-auth-0', 'none');
     fireEvent.click(screen.getByTestId('cred-required-0'));
     fireEvent.click(screen.getByTestId('create-profile-submit'));
 
     expect(submitted().credentials).toEqual([
-      { name: 'subject_token', required: true },
+      { name: 'subject_token', required: false },
     ]);
   });
 
@@ -122,7 +132,13 @@ describe('CreateProfileModal environment variables', () => {
     expect(screen.getByTestId('cred-env-0')).toHaveValue('SECOND, SECOND_ALT');
     fireEvent.click(screen.getByTestId('create-profile-submit'));
     expect(submitted().credentials).toEqual([
-      { name: 'second', required: false, envVars: ['SECOND', 'SECOND_ALT'] },
+      {
+        name: 'second',
+        required: true,
+        envVars: ['SECOND', 'SECOND_ALT'],
+        authStyle: 'bearer',
+        headerName: 'authorization',
+      },
     ]);
   });
 

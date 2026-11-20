@@ -69,11 +69,19 @@ describe('AuthenticatedRoutes', () => {
     expect(screen.getByTestId('all-workspaces')).toBeInTheDocument();
   });
 
-  it('sends anyone else to their workspaces instead', () => {
+  // Said, not redirected: a shared link or a typed URL would otherwise land
+  // on Workspaces with no word of why.
+  it('tells anyone else the page needs a platform admin', () => {
     renderAt('/all-workspaces');
 
     expect(screen.queryByTestId('all-workspaces')).not.toBeInTheDocument();
-    expect(screen.getByTestId('workspace-list')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-only-page')).toHaveTextContent(
+      'This page needs a platform admin',
+    );
+    expect(screen.getByTestId('admin-only-workspaces-link')).toHaveAttribute(
+      'href',
+      '/workspaces',
+    );
   });
 
   it('shows the sandboxes page to a platform admin', () => {
@@ -83,11 +91,11 @@ describe('AuthenticatedRoutes', () => {
     expect(screen.getByTestId('sandboxes')).toBeInTheDocument();
   });
 
-  it('sends anyone else away from sandboxes', () => {
+  it('keeps anyone else out of the sandboxes of every workspace', () => {
     renderAt('/sandboxes');
 
     expect(screen.queryByTestId('sandboxes')).not.toBeInTheDocument();
-    expect(screen.getByTestId('workspace-list')).toBeInTheDocument();
+    expect(screen.getByTestId('admin-only-page')).toBeInTheDocument();
   });
 
   it('decides nothing while the role is still loading', () => {
@@ -96,6 +104,7 @@ describe('AuthenticatedRoutes', () => {
 
     expect(screen.queryByTestId('all-workspaces')).not.toBeInTheDocument();
     expect(screen.queryByTestId('workspace-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-only-page')).not.toBeInTheDocument();
   });
 
   // Breadcrumb puts the divider on each child after the first, and it counts
