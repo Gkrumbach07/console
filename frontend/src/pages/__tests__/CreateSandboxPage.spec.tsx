@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 
 import CreateSandboxPage from '../CreateSandboxPage';
@@ -22,6 +23,13 @@ let mockPending = false;
 let mockFlags = { settings: true };
 let mockRole = { isWorkspaceAdmin: true };
 
+const mockGetSandbox = jest.fn();
+const mockUpload = jest.fn();
+const mockRunInSandbox = jest.fn();
+const mockImportProfiles = jest.fn();
+const mockCreateProvider = jest.fn();
+const mockUpdateProfile = jest.fn();
+
 jest.mock('../../api/sandboxes', () => ({
   useCreateSandbox: jest.fn(() => ({
     mutate: mockMutate,
@@ -30,6 +38,12 @@ jest.mock('../../api/sandboxes', () => ({
     isError: false,
     error: null,
   })),
+  getSandbox: (...args: unknown[]) => mockGetSandbox(...args),
+  uploadFile: (...args: unknown[]) => mockUpload(...args),
+}));
+
+jest.mock('../../api/sandboxRun', () => ({
+  runInSandbox: (...args: unknown[]) => mockRunInSandbox(...args),
 }));
 
 const mockProviders = [
@@ -42,22 +56,64 @@ const mockProviders = [
   {
     metadata: { name: 'gh', id: 'p2', createdAtMs: 0, resourceVersion: 1 },
     type: 'github',
+    // Its profile is the workspace's own, which is where it is looked up.
+    profileWorkspace: 'team-a',
     credentialKeys: [],
     configKeys: [],
+  },
+  // A model API of the team's own, added by URL and key: its profile names
+  // OpenCode and curl, and the provider keeps the URL.
+  {
+    metadata: { name: 'maas', id: 'p3', createdAtMs: 0, resourceVersion: 1 },
+    type: 'maas',
+    profileWorkspace: 'team-a',
+    config: { base_url: 'https://maas.example.com/v1' },
+  },
+];
+
+const mockProfiles = [
+  {
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    scope: 'platform',
+    endpoints: ['api.anthropic.com:443'],
+    binaries: [{ path: '/usr/local/bin/claude' }],
+    inferenceCapable: true,
+    resourceVersion: 1,
+  },
+  {
+    id: 'maas',
+    displayName: 'maas',
+    scope: 'workspace',
+    endpoints: ['maas.example.com:443'],
+    networkEndpoints: [{ host: 'maas.example.com', port: 443 }],
+    binaries: [{ path: '/usr/bin/opencode' }, { path: '/usr/bin/curl' }],
+    credentials: [{ name: 'api_key', envVars: ['MAAS_API_KEY'] }],
+    inferenceCapable: true,
+    resourceVersion: 2,
+  },
+  {
+    id: 'github',
+    displayName: 'GitHub',
+    scope: 'workspace',
+    endpoints: ['api.github.com:443'],
+    binaries: [{ path: '/usr/bin/gh' }],
+    inferenceCapable: false,
+    resourceVersion: 5,
   },
 ];
 
 jest.mock('../../api/providers', () => ({
   useProviders: jest.fn(() => ({ data: mockProviders })),
-  useProviderProfiles: jest.fn(() => ({
-    data: [
-      {
-        id: 'claude-code',
-        scope: 'platform',
-        endpoints: ['api.anthropic.com:443'],
-      },
-    ],
+  useProviderProfiles: jest.fn(() => ({ data: mockProfiles })),
+  useUpdateProviderProfile: jest.fn(() => ({
+    mutate: mockUpdateProfile,
+    isPending: false,
+    isError: false,
+    error: null,
   })),
+  importProviderProfiles: (...args: unknown[]) => mockImportProfiles(...args),
+  createProvider: (...args: unknown[]) => mockCreateProvider(...args),
 }));
 
 jest.mock('../../api/auth', () => ({
@@ -110,14 +166,18 @@ const mockPut = put as jest.Mock;
 const onCreated = jest.fn();
 const onCancel = jest.fn();
 
+const queryClient = new QueryClient();
+
 const page = () => (
-  <MemoryRouter>
-    <CreateSandboxPage
-      workspace="team-a"
-      onCreated={onCreated}
-      onCancel={onCancel}
-    />
-  </MemoryRouter>
+  <QueryClientProvider client={queryClient}>
+    <MemoryRouter>
+      <CreateSandboxPage
+        workspace="team-a"
+        onCreated={onCreated}
+        onCancel={onCancel}
+      />
+    </MemoryRouter>
+  </QueryClientProvider>
 );
 
 const renderPage = () => render(page());
@@ -163,8 +223,21 @@ const reviewAndCreate = () => {
   fireEvent.click(screen.getByTestId('create-sandbox-submit'));
 };
 
+const readySandbox = {
+  metadata: { name: 'brave-otter' },
+  status: { phase: 'READY', currentPolicyVersion: 1 },
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetSandbox.mockResolvedValue(readySandbox);
+  mockRunInSandbox.mockResolvedValue({
+    output: '{"data":[{"id":"granite"},{"id":"llama"}]}\r\n200\r\n',
+    exitCode: 0,
+  });
+  mockUpload.mockResolvedValue({});
+  mockImportProfiles.mockResolvedValue({ imported: true, profiles: [] });
+  mockCreateProvider.mockResolvedValue({});
   mockPending = false;
   mockFlags = { settings: true };
   mockRole = { isWorkspaceAdmin: true };
@@ -507,5 +580,204 @@ describe('CreateSandboxPage approval mode and the create itself', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+// What the sandbox is for is a choice on Create sandbox, not a flow of its
+// own: `openshell sandbox create -- opencode`, in a form.
+describe('CreateSandboxPage: what runs in it', () => {
+  const created = { metadata: { name: 'brave-otter' } };
+  const choose = (preset: string) => type('sandbox-preset', preset);
+  const pickProvider = (label: string) => {
+    fireEvent.click(screen.getByTestId('sandbox-providers-input'));
+    fireEvent.click(screen.getByText(label));
+  };
+
+  beforeEach(() => {
+    mockMutate.mockImplementation((_request, options) =>
+      options.onSuccess(created),
+    );
+  });
+
+  it('is a shell unless something else is chosen, and labels nothing', async () => {
+    renderPage();
+    expect(screen.getByTestId('sandbox-preset')).toHaveValue('shell');
+    expect(
+      screen.queryByTestId('sandbox-preset-needs-provider'),
+    ).not.toBeInTheDocument();
+    reviewAndCreate();
+    expect(sentRequest().labels).toBeUndefined();
+    // No command: the main process stays the image's login shell.
+    expect(sentRequest().command).toBeUndefined();
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('brave-otter'));
+  });
+
+  it('labels the sandbox with what it runs, and leaves its main process alone', async () => {
+    renderPage();
+    choose('opencode');
+    goTo('Review');
+    expect(screen.getByTestId('review-runs')).toHaveTextContent('OpenCode');
+    fireEvent.click(screen.getByTestId('create-sandbox-submit'));
+
+    expect(sentRequest().labels).toEqual({ type: 'opencode' });
+    expect(sentRequest().command).toBeUndefined();
+    // The terminal is handed the agent once the sandbox is ready.
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith('brave-otter', ['opencode']),
+    );
+  });
+
+  it('says an agent needs a provider when none is chosen', () => {
+    renderPage();
+    choose('opencode');
+    expect(
+      screen.getByTestId('sandbox-preset-needs-provider'),
+    ).toHaveTextContent('OpenCode needs a model to talk to');
+  });
+
+  // The cause of "my agent is blocked from the provider I gave it": the
+  // provider is reached only from the programs its profile names.
+  it("warns when a chosen provider's profile does not name the agent, and offers to add it", () => {
+    renderPage();
+    choose('opencode');
+    pickProvider('gh (github)');
+
+    const warning = screen.getByTestId('sandbox-provider-blocks-gh');
+    expect(warning).toHaveTextContent('gh does not let OpenCode through');
+    expect(warning).toHaveTextContent('GitHub names /usr/bin/gh');
+
+    fireEvent.click(screen.getByTestId('sandbox-provider-allow-gh'));
+    expect(mockUpdateProfile).toHaveBeenCalledWith({
+      profileId: 'github',
+      expectedResourceVersion: 5,
+      profile: expect.objectContaining({
+        binaries: [
+          { path: '/usr/bin/gh' },
+          { path: '/usr/bin/opencode' },
+          { path: '/usr/lib/node_modules/opencode-ai/**' },
+        ],
+      }),
+    });
+  });
+
+  it('does not offer to change a platform profile, and says who can', () => {
+    renderPage();
+    choose('opencode');
+    pickProvider('claude (claude-code)');
+    expect(
+      screen.getByTestId('sandbox-provider-blocks-claude'),
+    ).toHaveTextContent(
+      "A platform admin adds OpenCode's programs to the profile",
+    );
+    expect(
+      screen.queryByTestId('sandbox-provider-allow-claude'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('is quiet about a provider that already lets the agent through', () => {
+    renderPage();
+    choose('opencode');
+    pickProvider('maas (maas)');
+    expect(
+      screen.queryByTestId('sandbox-provider-blocks-maas'),
+    ).not.toBeInTheDocument();
+    choose('claude-code');
+    expect(screen.getByTestId('sandbox-provider-blocks-maas')).toBeVisible();
+  });
+
+  it('points OpenCode at a model API of the team’s own once the sandbox is ready', async () => {
+    renderPage();
+    choose('opencode');
+    pickProvider('maas (maas)');
+    reviewAndCreate();
+
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith('brave-otter', ['opencode']),
+    );
+    // Asked from inside the sandbox, with the key's env var.
+    const [workspace, sandbox, command] = mockRunInSandbox.mock.calls[0];
+    expect([workspace, sandbox]).toEqual(['team-a', 'brave-otter']);
+    expect(command[2]).toContain('Bearer $MAAS_API_KEY');
+    expect(command[4]).toBe('https://maas.example.com/v1/models');
+    const file = mockUpload.mock.calls[0][2] as File;
+    expect(file.name).toBe('opencode.json');
+    expect(mockUpload.mock.calls[0][3]).toBe('/sandbox/.config/opencode');
+    expect(mockAddSuccess).toHaveBeenCalledWith('Sandbox created');
+  });
+
+  it('says which step of the setup failed, tries it again, or goes on without it', async () => {
+    mockRunInSandbox.mockResolvedValueOnce({
+      output: '{"error":"no"}\r\n401\r\n',
+      exitCode: 0,
+    });
+    renderPage();
+    choose('opencode');
+    pickProvider('maas (maas)');
+    reviewAndCreate();
+
+    const failure = await screen.findByTestId('sandbox-setup-failure');
+    expect(failure).toHaveTextContent('maas: It refused the key (HTTP 401).');
+    expect(onCreated).not.toHaveBeenCalled();
+    // The sandbox exists: it is not created a second time.
+    fireEvent.click(screen.getByTestId('sandbox-setup-retry'));
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith('brave-otter', ['opencode']),
+    );
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockRunInSandbox).toHaveBeenCalledTimes(2);
+  });
+
+  it('can go to the sandbox as it is when the setup fails', async () => {
+    mockRunInSandbox.mockResolvedValue({ output: '', exitCode: 7 });
+    renderPage();
+    choose('opencode');
+    pickProvider('maas (maas)');
+    reviewAndCreate();
+    await screen.findByTestId('sandbox-setup-failure');
+    fireEvent.click(screen.getByTestId('sandbox-setup-skip'));
+    expect(onCreated).toHaveBeenCalledWith('brave-otter');
+  });
+
+  it('adds a provider by URL and key without leaving the page, and attaches it', async () => {
+    renderPage();
+    choose('opencode');
+    fireEvent.click(screen.getByTestId('sandbox-add-own-service'));
+    // It starts with the programs of what the sandbox runs, and curl.
+    expect(listValues('own-service-programs')).toEqual([
+      '/usr/bin/opencode',
+      '/usr/lib/node_modules/opencode-ai/**',
+      '/usr/bin/curl',
+    ]);
+    type('own-service-url', 'https://models.example.com/v1');
+    expect(screen.getByTestId('own-service-name')).toHaveValue('models');
+    type('own-service-key', 'test-key');
+    fireEvent.click(screen.getByTestId('own-service-submit'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('sandbox-provider-chip-models'),
+      ).toBeInTheDocument(),
+    );
+    expect(mockImportProfiles.mock.calls[0][1][0]).toMatchObject({
+      id: 'models',
+      networkEndpoints: [
+        expect.objectContaining({ host: 'models.example.com', port: 443 }),
+      ],
+    });
+    expect(mockCreateProvider).toHaveBeenCalledWith('team-a', {
+      name: 'models',
+      type: 'models',
+      profileWorkspace: 'team-a',
+      credentials: { MODELS_API_KEY: 'test-key' },
+      config: { base_url: 'https://models.example.com/v1' },
+    });
+  });
+
+  it('offers adding a provider to a workspace admin only', () => {
+    mockRole = { isWorkspaceAdmin: false };
+    renderPage();
+    expect(
+      screen.queryByTestId('sandbox-add-own-service'),
+    ).not.toBeInTheDocument();
   });
 });

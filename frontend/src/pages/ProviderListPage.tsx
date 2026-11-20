@@ -42,6 +42,7 @@ import { useAlerts } from '../app/AlertContext';
 import { useWorkspaceRole } from '../api/rbac';
 import { useSlots } from '../slots';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal';
+import OwnServiceProviderModal from '../components/provider/OwnServiceProviderModal';
 import ProviderFormModal from '../components/provider/ProviderFormModal';
 import RefreshErrorAlert, {
   isRefreshError,
@@ -84,6 +85,7 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
   const { addAlert } = useAlerts();
   const { isWorkspaceAdmin } = useWorkspaceRole(workspace);
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [isOwnServiceOpen, setOwnServiceOpen] = useState(false);
   const {
     page,
     setPage,
@@ -186,7 +188,8 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
                 {' '}
                 Its type comes from a provider profile, and this workspace sees
                 none yet: import one on the Profiles tab or under Provider
-                profiles first.
+                profiles first, or add a provider for a service of your own by
+                its URL and key.
               </>
             )}
           </EmptyStateBody>
@@ -198,6 +201,13 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
                   data-testid="create-provider-empty"
                 >
                   Add provider
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setOwnServiceOpen(true)}
+                  data-testid="create-own-service-empty"
+                >
+                  Add by URL and key
                 </Button>
               </EmptyStateActions>
             </EmptyStateFooter>
@@ -214,6 +224,17 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
                     data-testid="create-provider"
                   >
                     Add provider
+                  </Button>
+                </ToolbarItem>
+              )}
+              {isWorkspaceAdmin && (
+                <ToolbarItem>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setOwnServiceOpen(true)}
+                    data-testid="create-own-service"
+                  >
+                    Add by URL and key
                   </Button>
                 </ToolbarItem>
               )}
@@ -414,6 +435,13 @@ const ProviderListPage: React.FC<ProviderListPageProps> = ({
             </Tbody>
           </Table>
         </>
+      )}
+      {isOwnServiceOpen && (
+        <OwnServiceProviderModal
+          workspace={workspace}
+          isOpen
+          onClose={() => setOwnServiceOpen(false)}
+        />
       )}
       <ProviderFormModal
         mode="create"

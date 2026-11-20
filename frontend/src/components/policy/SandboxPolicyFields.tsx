@@ -21,12 +21,22 @@ import { PlusCircleIcon } from '@patternfly/react-icons';
 import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { Link } from 'react-router-dom';
 
-import { useProviderProfiles, useProviders } from '../../api/providers';
+import {
+  useProviderProfiles,
+  useProviders,
+  useUpdateProviderProfile,
+} from '../../api/providers';
+import { useWorkspaceRole } from '../../api/rbac';
 import type { CreateSandboxForm } from '../../hooks/useCreateSandboxForm';
+import {
+  profileAllows,
+  profileWithPrograms,
+} from '../../sandboxPresets/presets';
 import { profileForProvider } from '../../utils/providerProfiles';
 import ListInput from '../ListInput';
 import { isSimpleRule } from '../SandboxDraftsTab/proposalWords';
 import ProviderSelect from '../sandbox/ProviderSelect';
+import OwnServiceProviderModal from '../provider/OwnServiceProviderModal';
 import HostRuleForm from './HostRuleForm';
 import { describeEndpoint } from './policyBuilder';
 
@@ -56,10 +66,88 @@ const useProviderHosts = (workspace: string, names: string[]) => {
   return names.map((name) => ({ name, hosts: hostsOf(name) }));
 };
 
+// A provider that was chosen whose profile does not name the programs of
+// what the sandbox will run: the agent would reach nothing through it.
+const ProviderLetsThrough: React.FC<FieldProps & { providerName: string }> = ({
+  workspace,
+  form,
+  providerName,
+}) => {
+  const providers = useProviders(workspace);
+  const profiles = useProviderProfiles(workspace);
+  const { isWorkspaceAdmin } = useWorkspaceRole(workspace);
+  const update = useUpdateProviderProfile(workspace);
+  const provider = (providers.data ?? []).find(
+    (candidate) => candidate.metadata.name === providerName,
+  );
+  const profile = provider
+    ? profileForProvider(profiles.data ?? [], provider)
+    : undefined;
+  if (!provider || !profile || profileAllows(profile, form.preset)) {
+    return null;
+  }
+  // A workspace's own profile is its admin's to change. A platform profile
+  // is shared by every workspace, and is changed under Provider profiles.
+  const canFix = isWorkspaceAdmin && profile.scope === 'workspace';
+  return (
+    <Alert
+      variant="warning"
+      isInline
+      className="pf-v6-u-mt-sm"
+      title={`${providerName} does not let ${form.preset.name} through`}
+      data-testid={`sandbox-provider-blocks-${providerName}`}
+      actionLinks={
+        canFix ? (
+          <Button
+            variant="link"
+            isInline
+            isLoading={update.isPending}
+            isDisabled={update.isPending}
+            onClick={() =>
+              update.mutate({
+                profileId: profile.id,
+                profile: profileWithPrograms(profile, form.preset),
+                expectedResourceVersion: profile.resourceVersion,
+              })
+            }
+            data-testid={`sandbox-provider-allow-${providerName}`}
+          >
+            Let {form.preset.name} use it
+          </Button>
+        ) : undefined
+      }
+    >
+      A provider is reached only from the programs its profile names, and{' '}
+      {profile.displayName || profile.id} names{' '}
+      {(profile.binaries ?? []).map((binary) => binary.path).join(', ') ||
+        'none'}
+      . {form.preset.name} would be blocked from it.
+      {!canFix &&
+        ` ${profile.scope === 'workspace' ? 'A workspace admin' : 'A platform admin'} adds ${form.preset.name}'s programs to the profile.`}
+      {update.isError && ` ${(update.error as Error).message}`}
+    </Alert>
+  );
+};
+
 export const ProvidersField: React.FC<FieldProps> = ({ workspace, form }) => {
   const providers = useProviders(workspace);
   const profiles = useProviderProfiles(workspace);
+  const { isWorkspaceAdmin } = useWorkspaceRole(workspace);
+  const [isOwnServiceOpen, setOwnServiceOpen] = useState(false);
   const providerList = providers.data ?? [];
+  const runsAgent = form.preset.id !== 'shell';
+
+  const addOwn = isWorkspaceAdmin && (
+    <Button
+      variant="link"
+      isInline
+      icon={<PlusCircleIcon />}
+      onClick={() => setOwnServiceOpen(true)}
+      data-testid="sandbox-add-own-service"
+    >
+      Add a provider by URL and key
+    </Button>
+  );
 
   return (
     <FormGroup label="Providers" fieldId="sandbox-providers">
@@ -104,6 +192,37 @@ export const ProvidersField: React.FC<FieldProps> = ({ workspace, form }) => {
             </HelperText>
           </FormHelperText>
         </>
+      )}
+      {runsAgent && form.selectedProviders.length === 0 && (
+        <Alert
+          variant="info"
+          isInline
+          isPlain
+          className="pf-v6-u-mt-sm"
+          title={`${form.preset.name} needs a model to talk to: choose a provider that reaches one.`}
+          data-testid="sandbox-preset-needs-provider"
+        />
+      )}
+      {runsAgent &&
+        form.selectedProviders.map((name) => (
+          <ProviderLetsThrough
+            key={name}
+            workspace={workspace}
+            form={form}
+            providerName={name}
+          />
+        ))}
+      {addOwn && <div className="pf-v6-u-mt-sm">{addOwn}</div>}
+      {/* Mounted when opened, so that it starts with the programs of what
+          the sandbox runs now. */}
+      {isOwnServiceOpen && (
+        <OwnServiceProviderModal
+          workspace={workspace}
+          isOpen
+          onClose={() => setOwnServiceOpen(false)}
+          onCreated={(name) => form.toggleProvider(name, true)}
+          defaultPrograms={form.preset.programs}
+        />
       )}
     </FormGroup>
   );

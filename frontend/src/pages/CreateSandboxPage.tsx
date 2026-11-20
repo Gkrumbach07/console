@@ -32,6 +32,8 @@ import {
   HelperText,
   HelperTextItem,
   PageSection,
+  ProgressStep,
+  ProgressStepper,
   TextArea,
   TextInput,
   Title,
@@ -43,8 +45,9 @@ import {
 import { CodeIcon } from '@patternfly/react-icons';
 
 import { useProviderProfiles, useProviders } from '../api/providers';
+import { runInSandbox } from '../api/sandboxRun';
 import { useApplyApprovalMode } from '../api/sandboxSettings';
-import { useCreateSandbox } from '../api/sandboxes';
+import { getSandbox, uploadFile, useCreateSandbox } from '../api/sandboxes';
 import { useAlerts } from '../app/AlertContext';
 import KeyValueEditor from '../components/KeyValueEditor';
 import PolicyDocumentInput from '../components/policy/PolicyDocumentInput';
@@ -63,15 +66,30 @@ import {
   type CreateSandboxForm,
 } from '../hooks/useCreateSandboxForm';
 import { useI18n } from '../i18n';
+import { RUN_PRESETS, modelProvidersOf } from '../sandboxPresets/presets';
+import {
+  EMPTY_SETUP,
+  SETUP_TITLES,
+  SetupError,
+  runSetup,
+  setupStepsFor,
+  type SetupApi,
+  type SetupState,
+  type SetupStep,
+} from '../sandboxPresets/setup';
 import { profileForProvider } from '../utils/providerProfiles';
 
 type CreateSandboxPageProps = {
   workspace: string;
   // Where to go once the sandbox exists, and when the page is left without
   // creating one.
-  onCreated: (name: string) => void;
+  // terminalCommand is what the sandbox was made to run, for the terminal to
+  // start with; absent for a shell.
+  onCreated: (name: string, terminalCommand?: string[]) => void;
   onCancel: () => void;
 };
+
+const setupApi: SetupApi = { getSandbox, runInSandbox, uploadFile };
 
 // The levels the sandbox supervisor logs at. Empty leaves the choice to the
 // gateway.
@@ -224,6 +242,12 @@ const ReviewSummary: React.FC<{
         </DescriptionListDescription>
       </DescriptionListGroup>
       <DescriptionListGroup>
+        <DescriptionListTerm>Runs</DescriptionListTerm>
+        <DescriptionListDescription data-testid="review-runs">
+          {form.preset.name}
+        </DescriptionListDescription>
+      </DescriptionListGroup>
+      <DescriptionListGroup>
         <DescriptionListTerm>Providers</DescriptionListTerm>
         <DescriptionListDescription>
           {form.selectedProviders.length > 0
@@ -270,14 +294,14 @@ const ReviewSummary: React.FC<{
           </DescriptionListDescription>
         </DescriptionListGroup>
       )}
-      <DescriptionListGroup>
-        <DescriptionListTerm>Command</DescriptionListTerm>
-        <DescriptionListDescription>
-          {form.launch.command.length > 0
-            ? form.launch.command.join(' ')
-            : "The image's login shell"}
-        </DescriptionListDescription>
-      </DescriptionListGroup>
+      {form.launch.command.length > 0 && (
+        <DescriptionListGroup>
+          <DescriptionListTerm>Main command</DescriptionListTerm>
+          <DescriptionListDescription>
+            {form.launch.command.join(' ')}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      )}
       <DescriptionListGroup>
         <DescriptionListTerm>Resources</DescriptionListTerm>
         <DescriptionListDescription>
@@ -304,6 +328,53 @@ const CreateSandboxPage: React.FC<CreateSandboxPageProps> = ({
   const [created, setCreated] = useState<string | null>(null);
   const showFile = () => setFileOpen(true);
 
+  // What follows the create for a sandbox made to run an agent: waiting for
+  // it to be ready and, for OpenCode with a model API of one's own, pointing
+  // it at that API (sandboxPresets/setup.ts).
+  const providers = useProviders(workspace);
+  const profiles = useProviderProfiles(workspace);
+  const modelProviders = modelProvidersOf(
+    (providers.data ?? []).filter((provider) =>
+      form.selectedProviders.includes(provider.metadata.name),
+    ),
+    (provider) => profileForProvider(profiles.data ?? [], provider),
+  );
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  const [setupStep, setSetupStep] = useState<SetupStep | undefined>();
+  const [setupFailure, setSetupFailure] = useState<{
+    step: SetupStep;
+    message: string;
+  } | null>(null);
+
+  const runSetupFrom = async (sandboxName: string, from: SetupState) => {
+    setSetupFailure(null);
+    setSetup(from);
+    try {
+      await runSetup(
+        workspace,
+        sandboxName,
+        form.preset,
+        modelProviders,
+        setupApi,
+        from,
+        (state, step) => {
+          setSetup(state);
+          setSetupStep(step);
+        },
+      );
+      addSuccess('Sandbox created');
+      onCreated(sandboxName, form.preset.command);
+    } catch (error) {
+      setSetupFailure(
+        error instanceof SetupError
+          ? { step: error.step, message: error.message }
+          : { step: 'ready', message: (error as Error).message },
+      );
+    } finally {
+      setSetupStep(undefined);
+    }
+  };
+
   const submit = () => {
     const payload = form.buildPayload();
     if (!payload) return;
@@ -315,8 +386,12 @@ const CreateSandboxPage: React.FC<CreateSandboxPageProps> = ({
         // sandbox exists. If that fails the sandbox stays and the page says
         // so instead of moving on.
         if (await approvalMode.apply(sandbox, mode)) {
-          addSuccess('Sandbox created');
-          onCreated(sandbox.metadata.name);
+          if (form.preset.id === 'shell') {
+            addSuccess('Sandbox created');
+            onCreated(sandbox.metadata.name);
+          } else {
+            void runSetupFrom(sandbox.metadata.name, EMPTY_SETUP);
+          }
         }
       },
     });
@@ -370,6 +445,99 @@ const CreateSandboxPage: React.FC<CreateSandboxPageProps> = ({
           >
             Go to the sandbox
           </Button>
+        </PageSection>
+      </>
+    );
+  }
+
+  if (setup && created) {
+    const steps = setupStepsFor(form.preset, modelProviders);
+    return (
+      <>
+        {header}
+        <PageSection>
+          <Title headingLevel="h2" size="lg" className="pf-v6-u-mb-md">
+            Setting up {created} for {form.preset.name}
+          </Title>
+          <ProgressStepper
+            isVertical
+            aria-label="Setting up the sandbox"
+            data-testid="sandbox-setup-progress"
+          >
+            {steps.map((id) => {
+              const isDone = setup.done.includes(id);
+              const isFailed = setupFailure?.step === id;
+              const isRunning = setupStep === id;
+              return (
+                <ProgressStep
+                  key={id}
+                  id={`sandbox-setup-${id}`}
+                  titleId={`sandbox-setup-${id}-title`}
+                  variant={
+                    isDone
+                      ? 'success'
+                      : isFailed
+                        ? 'danger'
+                        : isRunning
+                          ? 'info'
+                          : 'pending'
+                  }
+                  isCurrent={isRunning || isFailed}
+                  description={
+                    id === 'models' && setup.found
+                      ? setup.found
+                          .map(
+                            ({ provider, models }) =>
+                              `${provider.name}: ${models.join(', ')}`,
+                          )
+                          .join('; ')
+                      : undefined
+                  }
+                  data-testid={`sandbox-setup-${id}`}
+                >
+                  {SETUP_TITLES[id]}
+                </ProgressStep>
+              );
+            })}
+          </ProgressStepper>
+          {setupFailure && (
+            <Alert
+              variant="danger"
+              isInline
+              className="pf-v6-u-mt-md"
+              title={`${SETUP_TITLES[setupFailure.step]} failed`}
+              data-testid="sandbox-setup-failure"
+              actionLinks={
+                <>
+                  <Button
+                    variant="link"
+                    isInline
+                    onClick={() => void runSetupFrom(created, setup)}
+                    data-testid="sandbox-setup-retry"
+                  >
+                    Try again
+                  </Button>
+                  <Button
+                    variant="link"
+                    isInline
+                    className="pf-v6-u-ml-md"
+                    onClick={() => onCreated(created)}
+                    data-testid="sandbox-setup-skip"
+                  >
+                    Go to the sandbox as it is
+                  </Button>
+                </>
+              }
+            >
+              <Content component="p">{setupFailure.message}</Content>
+              <Content component="small">
+                The sandbox exists. The check runs curl inside it, so the
+                provider&apos;s profile has to name /usr/bin/curl; what the
+                sandbox blocked is on its Proposals tab, and why a connection
+                failed is in its logs.
+              </Content>
+            </Alert>
+          )}
         </PageSection>
       </>
     );
@@ -441,6 +609,33 @@ const CreateSandboxPage: React.FC<CreateSandboxPageProps> = ({
                             {form.isResolved
                               ? `Community image — resolves to ${form.resolvedImage}`
                               : 'A community sandbox name (base, python, ollama, …) or a fully-qualified OCI image reference.'}
+                          </HelperTextItem>
+                        </HelperText>
+                      </FormHelperText>
+                    </FormGroup>
+                    <FormGroup label="What runs in it" fieldId="sandbox-preset">
+                      <FormSelect
+                        id="sandbox-preset"
+                        data-testid="sandbox-preset"
+                        value={form.preset.id}
+                        onChange={(_event, value) =>
+                          form.setPresetId(value as typeof form.preset.id)
+                        }
+                      >
+                        {RUN_PRESETS.map((preset) => (
+                          <FormSelectOption
+                            key={preset.id}
+                            value={preset.id}
+                            label={preset.name}
+                          />
+                        ))}
+                      </FormSelect>
+                      <FormHelperText>
+                        <HelperText>
+                          <HelperTextItem data-testid="sandbox-preset-help">
+                            {form.preset.description}
+                            {form.preset.id !== 'shell' &&
+                              ` The community base image has it installed. The terminal opens on it once the sandbox is ready${form.preset.alsoTries.length > 0 ? `; it also tries ${form.preset.alsoTries.join(', ')}, which stay blocked until you allow them` : ''}.`}
                           </HelperTextItem>
                         </HelperText>
                       </FormHelperText>

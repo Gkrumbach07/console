@@ -60,8 +60,15 @@ a page; each belongs to something the console already has.
 | Wrote `opencode.json` and opened the terminal on the agent | **After create:** the sandbox opens on its terminal running the command, and a preset can write the files its program needs. |
 
 The preset list is the only place the names of agents appear, as choices for
-a sandbox's command: `sandbox create -- opencode`, in a form. The landing
+what a sandbox runs: `sandbox create -- opencode`, in a form. The landing
 button is "Create sandbox".
+
+**Built the same day**, and "Run an agent" removed: see "Prototyped" in
+[pm-journey.md](pm-journey.md). Two things came out differently from the
+table. The choice does not set the sandbox's main command (a sandbox whose
+main process is an agent nobody is attached to ends when the agent does);
+it sets what the terminal starts, and labels the sandbox. And "Test" exists
+only as the model check after Create, not yet as a button on any provider.
 
 ## The navigation
 

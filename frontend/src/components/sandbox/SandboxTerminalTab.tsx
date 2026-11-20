@@ -81,12 +81,17 @@ type SandboxTerminalTabProps = {
   // What the first session runs instead of the default shell, one argument
   // to an entry. It is shown in the options, where it can be changed.
   initialCommand?: string[];
+  // What the sandbox was made to run, offered as a button: a click starts a
+  // session on it. It is never started without one, since whoever opens the
+  // tab may not be who chose it.
+  suggested?: { name: string; command: string[] };
 };
 
 const SandboxTerminalTab: React.FC<SandboxTerminalTabProps> = ({
   workspace,
   sandboxName,
   initialCommand,
+  suggested,
 }) => {
   const termRef = useRef<HTMLDivElement>(null);
   // The terminal of the session that is open, so that a theme toggle can
@@ -259,10 +264,29 @@ const SandboxTerminalTab: React.FC<SandboxTerminalTabProps> = ({
     connect();
   };
 
+  const startSuggested = () => {
+    if (!suggested) return;
+    setOptions({ ...options, commandText: suggested.command.join('\n') });
+    setOptionsError(null);
+    startRef.current = { type: 'start', command: suggested.command };
+    connect();
+  };
+
   const unsplit = isUnsplitCommand(parseCommand(options.commandText));
 
   return (
     <Stack hasGutter>
+      {suggested && (
+        <StackItem>
+          <Button
+            variant="secondary"
+            onClick={startSuggested}
+            data-testid="terminal-start-suggested"
+          >
+            Start {suggested.name}
+          </Button>
+        </StackItem>
+      )}
       <StackItem>
         <ExpandableSection
           toggleText="Session options"

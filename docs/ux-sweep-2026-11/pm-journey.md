@@ -115,42 +115,57 @@ Around it, in order of pain removed:
   policy" in Create.
 - Failed connections (not only denials) surfaced on the sandbox.
 
-## Prototyped (2026-11-20): Run an agent
+## Prototyped (2026-11-20): what runs in a sandbox
 
-`/workspaces/{ws}/run-agent` (`RunAgentPage`, `frontend/src/quickstart/`),
-offered first on an empty workspace and beside Create sandbox otherwise.
+The first version was a page of its own, "Run an agent". It was folded into
+Create sandbox the same day: a top-level agent flow made the console read as
+the agent product, which it is not (see
+[navigation-and-agents.md](navigation-and-agents.md)). What it did now
+belongs to things the console already has (`frontend/src/sandboxPresets/`).
 
-- **OpenCode with an endpoint of one's own.** The form asks for the URL, the
-  key and a name. It then imports a profile for that host (naming OpenCode's
-  programs and curl), creates the provider, creates a sandbox from the `base`
-  image, asks the endpoint for its models from inside the sandbox (which
-  tests the key and the route), writes `~/.config/opencode/opencode.json`
-  with those models, and offers the terminal with OpenCode running.
-- **Claude Code with an Anthropic key.** Upstream's `claude-code` profile, a
-  provider, a sandbox; three steps.
-- A step that fails says why, keeps what was made, and is tried again from
-  there. The key is held in the page only until the provider has it.
-- The agent's command reaches the terminal as navigation state, not a URL
-  parameter, so a link can never make a terminal run something.
+- **Create sandbox, "What runs in it":** a shell (the default), OpenCode,
+  Claude Code or Codex. The choice does not change the sandbox's main
+  process, which stays the image's login shell so the sandbox outlives a
+  session. It is what the terminal starts, and the sandbox is labelled
+  `type=<choice>`, so its Terminal tab offers "Start OpenCode" later.
+- **Provider checks, before the sandbox exists:** an agent with no provider
+  is told it needs one. A chosen provider whose profile does not name the
+  agent's programs is flagged ("gh does not let OpenCode through"), with one
+  click to add them to a workspace profile.
+- **Add a provider by URL and key** (Providers tab, and in place on Create
+  sandbox): writes the profile for that host and the provider that holds the
+  key. The URL is kept as the provider's `base_url` config entry, since a
+  profile has no place for a path.
+- **After Create**, for an agent: the page waits for the sandbox to be ready.
+  For OpenCode with a model API added that way, it asks the API for its
+  models from inside the sandbox (which tests the key, the route and the
+  policy) and writes `~/.config/opencode/opencode.json`. A step that fails
+  says why and can be tried again, or skipped.
+- The terminal then opens on the agent. The command travels as navigation
+  state, not a URL parameter, so a link can never make a terminal run
+  something; the label only ever offers a button.
 
-Run live on gateway 0.1.6 against the stand-in endpoint: about 20 seconds from
-"Run OpenCode" to ready, both models found, and `opencode run "Say hello"` in
-that sandbox answered through the endpoint. Claude Code with a dummy key: the
-profile was accepted, its calls to api.anthropic.com were allowed for
-`/usr/local/bin/claude`, and Anthropic answered "Invalid API key".
+Run live on gateway 0.1.6 against the stand-in endpoint, with the code
+rebased onto the 0.1.9 pin: choose OpenCode, add the provider from the page,
+Create; four seconds later the terminal was on OpenCode with the endpoint's
+model. Earlier the same day, `opencode run "Say hello"` answered through the
+endpoint, and Claude Code's calls to api.anthropic.com were allowed for
+`/usr/local/bin/claude` with upstream's profile (a dummy key, so Anthropic
+answered "Invalid API key").
 
-Measured for the recipes: OpenCode 1.2.18's connections come from
+Measured for the presets: OpenCode 1.2.18's connections come from
 `/usr/lib/node_modules/opencode-ai/bin/.opencode`; it also tries models.dev,
 registry.npmjs.org and opencode.ai and works without them. Claude Code
-2.1.156 also tries Datadog's log intake.
+2.1.156 also tries Datadog's log intake. Codex's programs are upstream's
+profile's and were not measured.
 
 Not done:
-- The compat probe per recipe (create it on the pinned gateway, check the
-  agent's binary still resolves to a path the profile names). Without it a
-  new `base` image can break a recipe silently.
-- Codex (its profile takes OAuth tokens, not a key), OpenRouter and the other
-  known services, and Claude Code against an endpoint of one's own.
-- Allowed IPs for an endpoint on a private address, and choosing the image.
-- Run an agent on the landing page and on Get started.
+- A compat probe per preset (create a sandbox on the pinned gateway and
+  check the agent's binary still resolves to a path the preset names).
+  Without it a new `base` image can break a preset silently.
+- Not run against a 0.1.9 gateway.
+- A gallery of upstream's example profiles; "Test" on any attached provider.
+- Allowed IPs for an endpoint on a private address, and presets for an image
+  other than `base`.
 - Typing into the web terminal was not exercised: the browser automation's
   keys did not reach it.

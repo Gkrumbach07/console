@@ -47,6 +47,7 @@ import SandboxAttention from '../components/sandbox/SandboxAttention';
 import SandboxDraftsTab from '../components/SandboxDraftsTab';
 import SandboxFilesTab from '../components/sandbox/SandboxFilesTab';
 import SandboxLogsTab from '../components/sandbox/SandboxLogsTab';
+import { PRESET_LABEL, presetFor } from '../sandboxPresets/presets';
 import SandboxTerminalTab from '../components/sandbox/SandboxTerminalTab';
 import PolicyRuleEditor from '../components/PolicyRuleEditor';
 import SandboxProvidersTab from '../components/sandbox/SandboxProvidersTab';
@@ -168,6 +169,8 @@ const SandboxDetailPage: React.FC<SandboxDetailPageProps> = (props) => {
   }
 
   const data = sandbox.data;
+  // What the sandbox was made to run, by the label Create sandbox gives it.
+  const runs = presetFor(data?.metadata.labels?.[PRESET_LABEL]);
   if (!data) {
     return null;
   }
@@ -480,6 +483,11 @@ const SandboxDetailPage: React.FC<SandboxDetailPageProps> = (props) => {
                     workspace={workspace}
                     sandboxName={sandboxName}
                     initialCommand={terminalCommand}
+                    suggested={
+                      runs.command.length > 0
+                        ? { name: runs.name, command: runs.command }
+                        : undefined
+                    }
                   />
                 )}
               </div>

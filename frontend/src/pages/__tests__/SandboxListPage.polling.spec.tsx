@@ -197,10 +197,6 @@ describe('SandboxListPage while it is being used', () => {
             path="/workspaces/team-a/create-sandbox"
             element={<div data-testid="create-page" />}
           />
-          <Route
-            path="/workspaces/team-a/run-agent"
-            element={<div data-testid="run-agent-page" />}
-          />
         </Routes>
       </MemoryRouter>
     );
@@ -210,22 +206,6 @@ describe('SandboxListPage while it is being used', () => {
       render(withCreatePage());
       fireEvent.click(screen.getByTestId('create-sandbox'));
       expect(screen.getByTestId('create-page')).toBeInTheDocument();
-    });
-
-    // The way from nothing to an agent: offered first where there is no
-    // sandbox yet, and beside Create sandbox where there are some.
-    it('offers Run an agent first on an empty workspace', () => {
-      mockUseSandboxes.mockReturnValue(loaded([]));
-      render(withCreatePage());
-      fireEvent.click(screen.getByTestId('run-agent-empty'));
-      expect(screen.getByTestId('run-agent-page')).toBeInTheDocument();
-    });
-
-    it('offers Run an agent in the toolbar', () => {
-      mockUseSandboxes.mockReturnValue(loaded(sandboxes(1)));
-      render(withCreatePage());
-      fireEvent.click(screen.getByTestId('run-agent'));
-      expect(screen.getByTestId('run-agent-page')).toBeInTheDocument();
     });
 
     it('opens the create page from the empty state', () => {

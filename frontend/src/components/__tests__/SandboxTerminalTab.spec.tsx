@@ -142,6 +142,29 @@ describe('SandboxTerminalTab', () => {
     ]);
   });
 
+  // A sandbox made to run an agent offers it again, on a click: whoever
+  // opens the tab may not be who chose it, so nothing starts by itself.
+  it('offers what the sandbox was made to run, and starts it on a click', () => {
+    render(
+      <SandboxTerminalTab
+        workspace="team a"
+        sandboxName="agent-1"
+        suggested={{ name: 'OpenCode', command: ['opencode'] }}
+      />,
+    );
+    const shell = lastSocket();
+    act(() => shell.open());
+    expect(shell.sent).toEqual([JSON.stringify({ type: 'start' })]);
+
+    fireEvent.click(screen.getByTestId('terminal-start-suggested'));
+    const agent = lastSocket();
+    expect(agent).not.toBe(shell);
+    act(() => agent.open());
+    expect(agent.sent).toEqual([
+      JSON.stringify({ type: 'start', command: ['opencode'] }),
+    ]);
+  });
+
   it('starts a new session with the chosen command, directory, environment and login-shell option', () => {
     renderTab();
     const first = lastSocket();

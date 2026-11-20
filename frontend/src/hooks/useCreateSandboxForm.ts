@@ -13,6 +13,11 @@ import {
   withRules,
   type PathAccess,
 } from '../components/policy/policyBuilder';
+import {
+  PRESET_LABEL,
+  presetFor,
+  type PresetId,
+} from '../sandboxPresets/presets';
 import { policyToText } from '../utils/policyFile';
 import {
   parseDriverConfig,
@@ -68,6 +73,12 @@ export const useCreateSandboxForm = () => {
   const [cpu, setCpu] = useState('');
   const [memory, setMemory] = useState('');
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
+  // What the sandbox is for: a shell, or one of the agents its image holds.
+  // It does not change the sandbox's main process, which stays the image's
+  // login shell so that the sandbox outlives a session: it is what the
+  // terminal starts, and a label on the sandbox says so.
+  const [presetId, setPresetId] = useState<PresetId>('shell');
+  const preset = presetFor(presetId);
 
   // The policy is held once, as the text of its file. The form's fields are
   // views of parts of it: each reads its part from the policy the text reads
@@ -210,6 +221,7 @@ export const useCreateSandboxForm = () => {
     setCpu('');
     setMemory('');
     setSelectedProviders([]);
+    setPresetId('shell');
     setEnvRows([]);
     setLabelRows([]);
     setAnnotationRows([]);
@@ -221,6 +233,14 @@ export const useCreateSandboxForm = () => {
     resetPolicy();
   }, [resetPolicy, resetLaunch]);
 
+  // A label a person gave is theirs: the preset's is added only beside it.
+  const sandboxLabels = useMemo(
+    () =>
+      presetId === 'shell' || PRESET_LABEL in labels
+        ? labels
+        : { ...labels, [PRESET_LABEL]: presetId },
+    [labels, presetId],
+  );
   const launchPayload = launch.payload;
   const parsedPolicy = reading.parsed;
   const buildPayload = useCallback((): CreateSandboxRequest | null => {
@@ -231,7 +251,7 @@ export const useCreateSandboxForm = () => {
       name: name || undefined,
       image: resolveImage(image) || undefined,
       policy: parsedPolicy,
-      labels: Object.keys(labels).length > 0 ? labels : undefined,
+      labels: Object.keys(sandboxLabels).length > 0 ? sandboxLabels : undefined,
       providers: selectedProviders.length > 0 ? selectedProviders : undefined,
       gpuCount: gpuCount ? Number(gpuCount) : undefined,
       cpu: cpu || undefined,
@@ -248,7 +268,7 @@ export const useCreateSandboxForm = () => {
   }, [
     isValid,
     parsedPolicy,
-    labels,
+    sandboxLabels,
     name,
     image,
     selectedProviders,
@@ -273,6 +293,8 @@ export const useCreateSandboxForm = () => {
     selectedProviders,
     setSelectedProviders,
     toggleProvider,
+    preset,
+    setPresetId,
     // The policy, its file and the views of it.
     policy,
     policyText,

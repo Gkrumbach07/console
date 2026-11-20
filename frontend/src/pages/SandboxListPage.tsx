@@ -131,8 +131,6 @@ const SandboxListPage: React.FC<SandboxListPageProps> = ({
   // Creating a sandbox is a page of its own: its wizard opens dialogs of
   // its own, and shows the policy file beside the form.
   const openCreate = () => navigate(`/workspaces/${workspace}/create-sandbox`);
-  // From nothing to an agent talking to a model, in one flow.
-  const openRunAgent = () => navigate(`/workspaces/${workspace}/run-agent`);
   const [nameFilter, setNameFilter] = useState('');
   const resultsRef = useRef<HTMLHeadingElement>(null);
   const { t: tCommon } = useI18n('common');
@@ -280,19 +278,12 @@ const SandboxListPage: React.FC<SandboxListPageProps> = ({
   const emptyState = (
     <EmptyState variant="lg" titleText="No sandboxes" icon={CubesIcon}>
       <EmptyStateBody>
-        A sandbox is a secure environment for an agent. Run an agent to have one
-        set up for you, with its model and key, or create a sandbox yourself.
+        A sandbox is a secure environment for an agent or a tool: it reaches
+        only what you allow. Create one and choose what runs in it.
       </EmptyStateBody>
       <EmptyStateFooter>
         <EmptyStateActions>
-          <Button onClick={openRunAgent} data-testid="run-agent-empty">
-            Run an agent
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={openCreate}
-            data-testid="create-sandbox-empty"
-          >
+          <Button onClick={openCreate} data-testid="create-sandbox-empty">
             Create sandbox
           </Button>
         </EmptyStateActions>
@@ -399,22 +390,11 @@ const SandboxListPage: React.FC<SandboxListPageProps> = ({
             </ToolbarItem>
           )}
           {createActionPosition === 'start' && (
-            <>
-              <ToolbarItem>
-                <Button onClick={openCreate} data-testid="create-sandbox">
-                  Create sandbox
-                </Button>
-              </ToolbarItem>
-              <ToolbarItem>
-                <Button
-                  variant="secondary"
-                  onClick={openRunAgent}
-                  data-testid="run-agent"
-                >
-                  Run an agent
-                </Button>
-              </ToolbarItem>
-            </>
+            <ToolbarItem>
+              <Button onClick={openCreate} data-testid="create-sandbox">
+                Create sandbox
+              </Button>
+            </ToolbarItem>
           )}
           {!compactToolbar && (
             <ToolbarItem>
@@ -449,22 +429,11 @@ const SandboxListPage: React.FC<SandboxListPageProps> = ({
             </ToolbarItem>
           )}
           {createActionPosition === 'end' && (
-            <>
-              <ToolbarItem>
-                <Button onClick={openCreate} data-testid="create-sandbox">
-                  Create sandbox
-                </Button>
-              </ToolbarItem>
-              <ToolbarItem>
-                <Button
-                  variant="secondary"
-                  onClick={openRunAgent}
-                  data-testid="run-agent"
-                >
-                  Run an agent
-                </Button>
-              </ToolbarItem>
-            </>
+            <ToolbarItem>
+              <Button onClick={openCreate} data-testid="create-sandbox">
+                Create sandbox
+              </Button>
+            </ToolbarItem>
           )}
           <ToolbarItem variant="pagination" align={{ default: 'alignEnd' }}>
             <CursorPagination variant="top" {...paginationProps} />

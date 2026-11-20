@@ -30,7 +30,6 @@ import ProviderProfilesPage from '../pages/ProviderProfilesPage';
 import GlobalPolicyPage from '../pages/GlobalPolicyPage';
 import CreateSandboxPage from '../pages/CreateSandboxPage';
 import ProposalsPage from '../pages/ProposalsPage';
-import RunAgentPage from '../pages/RunAgentPage';
 import SettingsPage from '../pages/SettingsPage';
 import { useUserRole } from '../api/rbac';
 import { useI18n } from '../i18n';
@@ -125,29 +124,10 @@ const CreateSandboxRoute: React.FC = () => {
       <WorkspaceCrumbs workspace={workspace} leaf="Create sandbox" />
       <CreateSandboxPage
         workspace={workspace}
-        onCreated={(name) =>
-          navigate(`/workspaces/${workspace}/sandboxes/${name}`)
-        }
-        onCancel={() => navigate(`/workspaces/${workspace}`)}
-      />
-    </>
-  );
-};
-
-const RunAgentRoute: React.FC = () => {
-  const { workspace } = useParams<{ workspace: string }>();
-  const navigate = useNavigate();
-  if (!workspace) {
-    return <Navigate to="/workspaces" replace />;
-  }
-  return (
-    <>
-      <WorkspaceCrumbs workspace={workspace} leaf="Run an agent" />
-      <RunAgentPage
-        workspace={workspace}
-        // The agent's command travels in the navigation state, which a link
-        // from outside the app cannot set: opening a URL never runs a command.
-        onOpenSandbox={(name, terminalCommand) =>
+        // What the sandbox was made to run travels in the navigation state,
+        // which a link from outside the app cannot set: opening a URL never
+        // runs a command.
+        onCreated={(name, terminalCommand) =>
           navigate(
             `/workspaces/${workspace}/sandboxes/${name}${terminalCommand ? '?tab=terminal' : ''}`,
             terminalCommand ? { state: { terminalCommand } } : undefined,
@@ -286,10 +266,6 @@ const AuthenticatedRoutes: React.FC<{ sessionAlert?: React.ReactNode }> = ({
       <Route
         path="/workspaces/:workspace/create-sandbox"
         element={<CreateSandboxRoute />}
-      />
-      <Route
-        path="/workspaces/:workspace/run-agent"
-        element={<RunAgentRoute />}
       />
       <Route
         path="/workspaces/:workspace/providers/:provider"
